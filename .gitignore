@@ -1,0 +1,22 @@
+# Data and model artifacts — never commit raw datasets or trained weights to git.
+data/
+!data/README.md
+runs/
+*.pt
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/

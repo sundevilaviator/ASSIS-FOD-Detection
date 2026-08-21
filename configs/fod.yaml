@@ -1,0 +1,81 @@
+# ASSIS FOD Module — configuration
+# Single source of truth for class list, size-bucket thresholds, and default
+# training hyperparameters, so the training script, benchmark script, and
+# Streamlit app all agree on the same definitions.
+
+# Classes used for this training run. FOD-A's full label set is larger than
+# this; this file lists a NARROW starting subset deliberately (same "start
+# narrow, then extend" principle used for the PPE module's original 3-class
+# start), so the pipeline is validated end-to-end on large/high-contrast
+# objects before pushing into the harder small-object classes that are the
+# actual research target. Do not read this as the final scope.
+classes:
+  - Wrench
+  - Hammer
+  - Screwdriver
+  - SodaCan
+  - Wood
+
+# Planned Phase 2b extension: FOD-A's small-fastener classes (nuts, bolts,
+# washers, screws, and similar) are the actual small-object gap this module
+# targets — see docs/GAP_ANALYSIS_SUMMARY.md. Their EXACT label spelling in
+# the dataset has not been confirmed in this session (verify against the
+# downloaded dataset's own class list before enabling), so they are
+# deliberately NOT included in `classes:` above yet. Re-run
+# src/voc_to_yolo.py with --list-classes-only (or inspect a few raw XML
+# files directly) to get the confirmed exact names, add them here, and
+# re-run the full pipeline — do not guess-add names to this list.
+
+# Bounding-box area, as a percent of total image area, used to bucket
+# detections into FAA-AC-style size classes for reporting. This is a PIXEL-AREA
+# proxy, not a physical centimeter measurement (see README "known limitation").
+# Buckets are intentionally aligned to the AC 150/5220-24 reference objects:
+#   - "small"  ~ approximates the 3.1-4.3 cm reference cylinder/sphere class
+#   - "medium" ~ approximates up to the 10.2 cm (4 in) AC size-distribution cutoff
+#   - "large"  ~ anything bigger (large debris, wildlife, vehicle parts, etc.)
+size_buckets:
+  small:
+    max_area_pct: 0.5
+  medium:
+    max_area_pct: 2.0
+  large:
+    max_area_pct: null   # no upper bound
+
+# FAA AC 150/5220-24 pass/fail reference values used by src/benchmark_faa.py.
+faa_ac_150_5220_24:
+  min_detection_rate_small_object: 0.90   # AC: >=90% of debris <=4in must be caught
+  max_false_alarms_per_day_visual: 1
+  max_false_alarms_per_day_non_visual: 3
+  max_location_error_m: 5.0
+  multi_object_min_separation_m: 3.0
+
+# Default training hyperparameters (Ultralytics YOLOv8).
+training:
+  model: yolov8s.pt      # small object performance benefit over yolov8n at
+                          # modest extra cost; swap to yolov8n.pt for faster
+                          # iteration on CPU/Colab free tier
+  imgsz: 960              # higher than the YOLO default (640) to preserve
+                          # small-object detail; increase further if GPU memory allows
+  epochs: 100
+  batch: 16
+  patience: 25
+  optimizer: auto
+  # copy_paste pastes extra object instances into training images — applied
+  # from the start (not added later after seeing a problem), since Phase 1
+  # showed underrepresented classes (gloves) never recovered once training
+  # started without enough of them in view. This is a direct, proactive
+  # application of that lesson to Phase 2's small-object classes.
+  copy_paste: 0.3
+  # Lighting-variation augmentation, increased above the Ultralytics default
+  # (0.4), as a partial, honest mitigation for the environmental-robustness
+  # gap (day/dusk/artificial-light variation in camera footage). This is
+  # NOT a substitute for real night/rain footage or thermal fusion — it
+  # only widens the brightness/contrast distribution the model sees during
+  # training. Documented as partial in docs/RESEARCH_LOG.md, not claimed as
+  # "all-weather" anywhere.
+  hsv_v: 0.5
+  seed: 42
+  # Loss-weighting nudge toward small objects; Ultralytics doesn't expose a
+  # native "small-object weight," so this is implemented via oversampling in
+  # data_prep.py rather than a loss-function change — documented in
+  # docs/RESEARCH_LOG.md as the current approach and a place for future work.

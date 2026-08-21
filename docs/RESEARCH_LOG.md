@@ -1,0 +1,202 @@
+# ASSIS FOD Module — Research Log
+
+Dated entries only. Each entry states what was actually run, on what data,
+with what result — kept separate from planning notes so this file stays
+useful as evidence of progress rather than a to-do list. Add a new entry per
+work session; do not edit past entries except to fix a factual error (note
+the correction inline, don't silently rewrite history).
+
+Format per entry: date, what was done, what artifact it produced, what it
+does *not* yet show.
+
+---
+
+## 2026-08-18 — Repository scaffold and gap-driven scope definition
+
+**Done:**
+- Completed a competitive/gap analysis across 8 commercial and
+  government-funded FOD detection systems (QinetiQ Tarsier, Xsight
+  FODetect/RunWize, Stratech iFerret, Trex FOD Finder, ELVA-1, Illuminex AI
+  FODᴬᴵ, Safe Pro SPOTD/AFWERX SBIR, FAA/Volpe sUAS+FastFlow research) and
+  cross-referenced FAA AC 150/5220-24's published performance requirements.
+  See `docs/GAP_ANALYSIS_SUMMARY.md`.
+- Scoped this module's Phase 2 MVP to a specific, defensible gap: small-object
+  (sub-4cm-proxy) detection, evaluated against FAA AC 150/5220-24-style
+  metrics, designed for existing CCTV/PTZ camera feeds rather than new
+  dedicated hardware.
+- Built the repository scaffold: data preparation pipeline
+  (`src/data_prep.py`), training wrapper (`src/train.py`), inference script
+  (`src/infer.py`), FAA-style benchmark script (`src/benchmark_faa.py`),
+  Streamlit demo app (`app/streamlit_app.py`), and Colab training notebook
+  (`notebooks/ASSIS_FOD_Training_Colab.ipynb`).
+- Unit-tested the benchmark script's IoU and size-bucket logic
+  (`tests/test_benchmark_faa.py`) against synthetic ground truth.
+
+**Does NOT yet show:**
+- No model has been trained yet. No accuracy, recall, or false-alarm numbers
+  in this log are real until a training run and benchmark run actually
+  complete against the FOD-A small-object split.
+- No cross-site validation, no thermal/RGB fusion, no open-world evaluation —
+  these remain roadmap items, not built or tested.
+- Camera/PTZ integration is a design target, not yet implemented against a
+  live video feed.
+
+**Next planned session:** run `src/data_prep.py --download` +
+`--build-split` against FOD-A, run a first training pass with `src/train.py`,
+and record the first real `src/benchmark_faa.py` result in this log.
+
+---
+
+## 2026-08-18 (session 2) — VOC pipeline, environmental-metadata benchmark, full smoke test, positioning fix
+
+**Corrections to session 1's work, made explicit rather than silently edited:**
+- Session 1's README and `docs/GAP_ANALYSIS_SUMMARY.md` framed this module
+  around "small and non-hub airports." That framing has been removed and
+  replaced with a cost/deployability differentiator applicable at any
+  airport size (marginal cost of one more detection head on existing camera
+  infrastructure vs. a new capital purchase, amortized across ASSIS's other
+  camera-based modules). This was a real positioning mistake, not a wording
+  preference — corrected in `README.md` and `docs/GAP_ANALYSIS_SUMMARY.md`.
+- `docs/GAP_ANALYSIS_SUMMARY.md` now states explicitly, at the top, that its
+  vendor cost/technology claims have not been independently re-verified
+  against primary sources and should not be cited in RFE material until
+  they are.
+- Session 1's `configs/fod.yaml` used an invented placeholder class taxonomy
+  (`fastener`, `metal_fragment`, `tool`, ...) that was never checked against
+  FOD-A's real labels. Replaced with the confirmed real starting subset
+  (Wrench, Hammer, Screwdriver, SodaCan, Wood) — large/high-contrast classes
+  chosen deliberately to validate the pipeline before extending to the
+  actual small-fastener target classes (documented as a planned Phase 2b
+  extension in `configs/fod.yaml`, with exact label names flagged as
+  unconfirmed rather than guessed).
+
+**Done, this session:**
+- Confirmed via primary sources (arXiv:2110.03072, the FOD-UNOmaha/FOD-data
+  GitHub repo) that FOD-A ships Pascal VOC XML annotations, 31 object
+  categories per FAA guidance, and *separate* light-level (bright/dim/dark)
+  and weather (dry/wet) categorization metadata — this last point was new
+  information, not previously incorporated into this module's design.
+- Built `src/voc_to_yolo.py` (VOC XML → YOLO txt converter), including a
+  `--list-classes-only` mode specifically so real dataset class names are
+  read from the data rather than assumed from memory. Tested against a
+  hand-computed fixture (`tests/test_voc_to_yolo.py`, 6 tests) — exact
+  coordinate math, unknown-class handling, malformed-XML handling, and
+  out-of-frame bbox clamping all verified against manually worked values,
+  not just "does it run."
+- Extended `src/benchmark_faa.py` with an environmental-condition breakdown:
+  if a FOD-A-style light/weather metadata CSV is supplied, the benchmark
+  reports detection rate stratified by lighting and weather condition, not
+  just size bucket. This is a genuinely new capability this session added —
+  no vendor or paper reviewed in the gap analysis publishes this. Column
+  names are auto-detected with an explicit override path and a printed
+  warning if nothing matches, since the real CSV's schema was not verified
+  (no network access to the live dataset). 5 new unit tests
+  (`test_parse_metadata_csv_*`) against hand-built CSV fixtures.
+- **Found and fixed a real bug via end-to-end testing, not just unit tests:**
+  `benchmark_faa.py`'s labels-directory path resolution used
+  `images_dir.parent.parent`, which pointed at the dataset root instead of
+  the split's own `labels/` folder — this silently produced zero ground
+  truth for every image instead of erroring. Caught only because the full
+  pipeline was run end to end against synthetic data with `data_prep.py`'s
+  actual output layout, not a hand-rolled test directory. Fixed, refactored
+  into a standalone `resolve_labels_dir()` function specifically so this
+  exact path transformation is now unit-tested
+  (`test_resolve_labels_dir_matches_data_prep_output_layout`).
+- Added `configs/fod.yaml` augmentation settings applied from the start —
+  `copy_paste: 0.3` (proactively applying the Phase 1 lesson that
+  underrepresented classes never recover once training starts without
+  enough of them in view) and `hsv_v: 0.5` (lighting-variation augmentation,
+  an honest partial mitigation for the environmental-robustness gap — not
+  equivalent to real night/rain data or thermal fusion, and documented as
+  such in `configs/fod.yaml`'s own comments).
+- Built `notebooks/ASSIS_FOD_Colab_Full.py`: the complete pipeline as one
+  file, matching this project's established convention for a single
+  runnable training file. It orchestrates the tested `src/` modules — it
+  does not reimplement their logic — and has two explicit "CONFIRM BEFORE
+  CONTINUING" checkpoints (real downloaded folder structure; real metadata
+  CSV filename) instead of asserting unverified dataset internals as fact.
+- **Ran the complete pipeline end to end** (download step stubbed with a
+  synthetic 24-image VOC dataset, since Kaggle is not reachable from this
+  session's network) — VOC→YOLO conversion → small-object split →
+  1-epoch CPU training (yolov8n, imgsz=320, for speed) → inference →
+  FAA benchmark with the environmental breakdown, all executed without
+  error after the labels_dir fix above. All 18 unit tests pass
+  (`pytest tests/ -v`).
+
+**Does NOT yet show — read this carefully, these are not real results:**
+- The synthetic-data training/benchmark run above proves the *pipeline*
+  works, not that the model detects anything real. It used solid-color
+  placeholder images and random box placement, 1 epoch, on CPU. Detection
+  rate was 0% across all buckets, as expected for a smoke test, not a
+  finding about FOD-A or small-object detectability.
+- No model has been trained on real FOD-A data yet. That is still the
+  single biggest gap between this repo and a citable result — see "Next
+  planned session."
+- FOD-A's real folder layout (`JPEGImages`/`Annotations` assumed by
+  default in `notebooks/ASSIS_FOD_Colab_Full.py`) and the light/weather
+  metadata CSV's real column names remain unconfirmed against the live
+  dataset. Both are explicit manual-confirmation checkpoints in that file,
+  not assumptions baked into the code.
+- Camera/CCTV work: still not started, still not authorized. Nothing in
+  this session touched a live camera feed or implied CHS access.
+
+**Next planned session:** run `notebooks/ASSIS_FOD_Colab_Full.py` for real
+in Colab against the actual FOD-A download — confirm the real folder
+structure and metadata CSV at the two checkpoints, then record the first
+real per-class training and FAA-benchmark numbers (good, bad, or mixed) in
+this log.
+
+---
+
+## 2026-08-19 — First real run against live FOD-A data (Colab, paid tier, GPU)
+
+**Done:**
+- Ran `notebooks/ASSIS_FOD_Colab_Full.py`'s steps for real, against the
+  actual downloaded FOD-A dataset (not synthetic data), in Google Colab.
+- Confirmed the real downloaded folder structure at the Step 1b checkpoint:
+  `FODPascalVOCFormat-V.2.1/VOC2007/Annotations/` and
+  `.../VOC2007/JPEGImages/` — different from the flat `Annotations/` /
+  `JPEGImages/` layout assumed by default in the script. Script paths
+  adjusted accordingly for this run.
+- Confirmed the real 31 FOD-A class names directly against the live
+  dataset (33,793 XML files scanned, 0 malformed): Bolt, Pliers, Wrench,
+  Washer, Wire, PlasticPart, LuggageTag, Cutter, Label, Nut, Nail, Battery,
+  BoltWasher, MetalPart, PaintChip, SodaCan, ClampPart, Screwdriver,
+  Hammer, LuggagePart, Rock, FuelCap, AdjustableClamp, BoltNutSet, Pen,
+  AdjustableWrench, MetalSheet, Hose, Wood, Screw, Tape. All 5 classes
+  currently in `configs/fod.yaml` (Wrench, Hammer, Screwdriver, SodaCan,
+  Wood) matched exactly, including capitalization — no config edit needed.
+- **New finding, not previously documented:** none of FOD-A's 31 classes
+  cover tire-fragment or rubber-debris FOD (burst retreads, rubber left on
+  taxiways/runways) — a real, known airfield FOD hazard. Logged as a
+  limitation in `README.md` and `docs/GAP_ANALYSIS_SUMMARY.md`. No public
+  dataset covering this was identified; not started.
+- Ran the real VOC→YOLO conversion against all 33,793 XML files: 5,295
+  label files written (matching the 5 in-scope classes), 29,177 objects in
+  other classes correctly skipped as out-of-scope (not an error — expected
+  given the deliberately narrow 5-class starting subset).
+- Assembled the real `images/`+`labels/` pair: 5,295 image/label pairs,
+  zero mismatches.
+- Built the real small-object-weighted split: 4,502 base training images,
+  789 additional oversampled small-object images, 793 held-out test
+  images. Source composition by size bucket: small 309, medium 1,481,
+  large 3,505.
+- Started real training (`src/train.py`, GPU, paid Colab tier) against
+  this real split. In progress as of this entry.
+
+**Does NOT yet show:**
+- Training was still running at the time this entry was written — no
+  final weights, no real detection-rate or FAA-benchmark numbers yet. Do
+  not cite any accuracy figure for this run until it's recorded here after
+  completion.
+- Tire-fragment/rubber-debris detection: still not covered, not started,
+  no dataset identified — see above.
+- Environmental (light/weather) metadata breakdown: not run yet this
+  session — `METADATA_CSV` was left unset for this pass; the real CSV's
+  filename/columns still haven't been located in the live dataset. Follow-
+  up item for next session, not skipped by oversight.
+
+**Next planned session:** record the finished training run's real
+per-class detection results and `src/benchmark_faa.py` output (good, bad,
+or mixed) here. Locate FOD-A's light/weather metadata CSV and re-run the
+benchmark with `--metadata-csv` for the environmental breakdown.

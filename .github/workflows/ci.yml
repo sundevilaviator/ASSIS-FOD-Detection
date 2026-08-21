@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        # Deliberately NOT installing ultralytics here: the unit tests only
+        # exercise the pure-logic functions (IoU, size bucketing, dataset
+        # discovery), which have no torch/ultralytics dependency at import
+        # time. This keeps CI fast and avoids needing a GPU runner just to
+        # check that the math is right.
+        run: pip install pytest pyyaml pillow
+      - name: Run unit tests
+        run: pytest tests/ -v
+      - name: Byte-compile all scripts (catches syntax errors in the full pipeline)
+        run: python -m py_compile src/*.py app/*.py
