@@ -96,7 +96,7 @@ and record the first real `src/benchmark_faa.py` result in this log.
   `benchmark_faa.py`'s labels-directory path resolution used
   `images_dir.parent.parent`, which pointed at the dataset root instead of
   the split's own `labels/` folder — this silently produced zero ground
-  truth for every image instead of erroring. Caught only because the full
+  truth for every image instead of raising an error. Caught only because the full
   pipeline was run end to end against synthetic data with `data_prep.py`'s
   actual output layout, not a hand-rolled test directory. Fixed, refactored
   into a standalone `resolve_labels_dir()` function specifically so this
@@ -123,7 +123,7 @@ and record the first real `src/benchmark_faa.py` result in this log.
   error after the labels_dir fix above. All 18 unit tests pass
   (`pytest tests/ -v`).
 
-**Does NOT yet show — read this carefully, these are not real results:**
+**Does NOT yet show — read this carefully; these are not real results:**
 - The synthetic-data training/benchmark run above proves the *pipeline*
   works, not that the model detects anything real. It used solid-color
   placeholder images and random box placement, 1 epoch, on CPU. Detection
