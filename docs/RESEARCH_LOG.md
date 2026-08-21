@@ -200,3 +200,112 @@ this log.
 per-class detection results and `src/benchmark_faa.py` output (good, bad,
 or mixed) here. Locate FOD-A's light/weather metadata CSV and re-run the
 benchmark with `--metadata-csv` for the environmental breakdown.
+
+---
+
+## 2026-08-20 — First real training run completed (100 epochs, real FOD-A data)
+
+**Done:**
+- Completed the real training run started 2026-08-19, on the real
+  4,502-base + 789-oversampled-small-object split described in that entry.
+  100 epochs, yolov8n, imgsz 960, GPU (Colab paid tier). Training survived
+  two real Colab disconnects along the way (interrupted once manually at
+  epoch 21, disconnected again partway through epoch 82) — both times
+  resumed cleanly from a checkpoint saved to Google Drive
+  (`/content/drive/MyDrive/ASSIS-FOD-runs/detect/train/weights/last.pt`),
+  set up specifically after the first disconnect to prevent losing
+  progress. No training progress was actually lost across either
+  disconnect — Colab's background execution continued on the VM between
+  epochs 83–98 even while the browser view was disconnected.
+- **Real validation results, on the 793-image held-out test split**
+  (5 classes: Wrench, Hammer, Screwdriver, SodaCan, Wood):
+
+  | Class | Images | Instances | Precision | Recall | mAP50 | mAP50-95 |
+  |---|---|---|---|---|---|---|
+  | all | 793 | 793 | 0.995 | 0.997 | 0.995 | 0.964 |
+  | Wrench | 375 | 375 | 0.992 | 0.986 | 0.995 | 0.870 |
+  | Hammer | 128 | 128 | 0.995 | 1.000 | 0.995 | 0.976 |
+  | Screwdriver | 113 | 113 | 0.994 | 1.000 | 0.995 | 0.992 |
+  | SodaCan | 134 | 134 | 0.995 | 1.000 | 0.995 | 0.991 |
+  | Wood | 43 | 43 | 1.000 | 1.000 | 0.995 | 0.993 |
+
+  This is the first real, non-synthetic result this module has produced —
+  every earlier number in this log was either a smoke test or a planning
+  estimate.
+
+**Does NOT yet show:**
+- FAA AC 150/5220-24-style benchmark (`src/benchmark_faa.py`) not yet run
+  against these real weights as of this entry — planned as the immediate
+  next step, same session.
+- Environmental (light/weather) metadata breakdown — FOD-A's real
+  metadata CSV still hasn't been located; still an open item.
+- These results are on a held-out split of the *same* source dataset, not
+  an independent site or camera — per `docs/FAA_AC_150_5220-24_BENCHMARK.md`,
+  cross-site validation remains a real, unclosed gap, not something this
+  result should be read as answering.
+- Tire-fragment/rubber-debris detection: still not covered — see the
+  2026-08-19 entry and `README.md`.
+- Only 5 of FOD-A's 31 real classes are covered by this trained model
+  (the deliberately narrow starting subset) — the small-fastener classes
+  (Bolt, Nut, Washer, Screw, BoltWasher, BoltNutSet) that are the more
+  operationally realistic FOD targets are not yet trained on.
+
+**Next planned session:** run and record the FAA-style benchmark against
+these real weights; plan and execute the MKS field pilot test (PPE/
+RampGuard module) once authorization is confirmed in writing; consider
+extending training to the small-fastener classes given how strong this
+first 5-class result is.
+
+---
+
+## 2026-08-20 (same session) — First real FAA AC 150/5220-24-style benchmark
+
+**Done:**
+- Ran `src/benchmark_faa.py` against the trained weights above, on the
+  same 793-image held-out test split. Full report:
+  `docs/benchmark_results/benchmark_20260820T182741Z.md` /
+  `.json`.
+- **Real results by size bucket** (pixel-area proxy, not calibrated
+  centimeters — see limitation below):
+
+  | Bucket | Ground truth | Detected (TP) | Missed (FN) | Detection rate | Meets FAA's referenced 90% threshold? |
+  |---|---|---|---|---|---|
+  | Small | 46 | 24 | 22 | 52.2% | **No** |
+  | Medium | 222 | 221 | 1 | 99.5% | Yes |
+  | Large | 525 | 525 | 0 | 100% | Yes |
+
+  False positives: 0.0101 per image. Mean localization error: 0.30% of
+  frame diagonal (both pixel-based proxies, not the AC's real units — see
+  limitation below).
+
+**What this result actually means — read before citing it anywhere:**
+This is a genuinely useful, credible result specifically *because* it
+confirms rather than avoids the module's own founding premise: small-
+object FOD detection is the real, unsolved, hard part of this problem,
+consistent with the entire competitive gap analysis
+(`docs/GAP_ANALYSIS_SUMMARY.md`). A result showing near-perfect detection
+on every size bucket would have been suspicious, not reassuring, given
+what every reviewed vendor and paper already documents about this gap.
+This number should be presented honestly as evidence that the problem
+this module targets is real and measured, not as evidence the problem is
+solved — it is not.
+
+**Does NOT yet show / limitations, carried directly from the benchmark
+script's own printed output:**
+- Size buckets are a pixel-area proxy, not calibrated real-world
+  centimeters — FOD-A has no ground-sample-distance data.
+- False-alarm rate is per-image, not the AC's per-day figure — converting
+  requires a real deployment's scan cadence, which doesn't exist yet.
+- Localization error is in pixels/frame-diagonal-percent, not meters.
+- This is a held-out split of the *same* source dataset, not cross-site
+  validation.
+- Light/weather metadata breakdown was not run this session
+  (`results_by_light_level` / `results_by_weather` both null) — the real
+  metadata CSV still hasn't been located in the live dataset.
+
+**Next planned session:** investigate the small-object miss cases
+specifically (which of Wrench/Hammer/Screwdriver/SodaCan/Wood account for
+the 22 misses, and at what size/confidence) to decide whether more
+epochs, different augmentation, or more small-object training data is the
+right next lever — rather than assuming any one fix. Continue toward the
+MKS pilot test and the light/weather metadata CSV as separately planned.

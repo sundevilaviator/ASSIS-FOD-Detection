@@ -18,7 +18,9 @@ argparse; Streamlit swallows its own flags before that point.)
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +30,51 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "fod.yaml"
+
+# Trained weights are NOT committed to git (see .gitignore — a 20MB+ binary
+# does not belong in source history). For a hosted deployment where there is
+# no local weights file, the app fetches them once from a published release
+# asset. Set this to the release-asset URL, or override at runtime with the
+# ASSIS_FOD_WEIGHTS_URL environment variable / Streamlit secret.
+DEFAULT_WEIGHTS_URL = ""
+WEIGHTS_CACHE_DIR = Path(
+    os.environ.get("ASSIS_FOD_WEIGHTS_CACHE", Path.home() / ".cache" / "assis-fod")
+)
+
+
+def configured_weights_url() -> str:
+    """Resolve the weights URL from (in order) env var, Streamlit secret, default.
+
+    st.secrets raises rather than returning empty when no secrets file exists
+    at all, which is the normal case for a local run — so that lookup is
+    guarded rather than assumed to succeed.
+    """
+    env_url = os.environ.get("ASSIS_FOD_WEIGHTS_URL", "").strip()
+    if env_url:
+        return env_url
+    try:
+        secret_url = str(st.secrets.get("weights_url", "")).strip()
+        if secret_url:
+            return secret_url
+    except Exception:  # noqa: BLE001 - no secrets configured; expected locally
+        pass
+    return DEFAULT_WEIGHTS_URL.strip()
+
+
+def download_weights(url: str, dest: Path) -> Path:
+    """Download weights to `dest` if not already cached. Returns the path.
+
+    Downloads to a temporary sibling file first and renames on success, so an
+    interrupted download can never leave a truncated file that later looks
+    like a valid cache hit.
+    """
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".partial")
+    urllib.request.urlretrieve(url, tmp)  # noqa: S310 - URL is operator-configured
+    tmp.replace(dest)
+    return dest
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,12 +136,27 @@ def main() -> None:
     conf_thresh = st.sidebar.slider("Confidence threshold", 0.05, 0.95, 0.35, 0.05)
 
     if not weights_path:
-        st.info(
-            "No weights loaded yet. Train a model first (`src/train.py`), then pass "
-            "`--weights path/to/best.pt` when launching this app, or enter the path "
-            "in the sidebar."
-        )
-        st.stop()
+        url = configured_weights_url()
+        if url:
+            cached = WEIGHTS_CACHE_DIR / "best.pt"
+            try:
+                with st.spinner("Fetching trained weights (first run only)…"):
+                    weights_path = str(download_weights(url, cached))
+            except Exception as e:  # noqa: BLE001
+                st.error(
+                    f"Could not download weights from the configured URL: {e}\n\n"
+                    "Enter a local weights path in the sidebar instead."
+                )
+                st.stop()
+        else:
+            st.info(
+                "No weights loaded yet. Train a model first (`src/train.py`), then pass "
+                "`--weights path/to/best.pt` when launching this app, or enter the path "
+                "in the sidebar. For a hosted deployment, publish the weights as a "
+                "release asset and set `ASSIS_FOD_WEIGHTS_URL` (or a `weights_url` "
+                "Streamlit secret) so the app can fetch them automatically."
+            )
+            st.stop()
 
     cfg = load_config(cfg_path)
     thresholds = cfg["size_buckets"]

@@ -86,10 +86,36 @@ python src/benchmark_faa.py --weights runs/detect/train/weights/best.pt --data d
 streamlit run app/streamlit_app.py -- --weights runs/detect/train/weights/best.pt
 ```
 
+### Deploying the demo app (hosted)
+
+Trained weights are deliberately **not** committed to git (`.gitignore` excludes
+`*.pt` — a 20MB+ binary does not belong in source history), so a hosted
+deployment has no weights file to load and will show an empty state until one
+is provided. To deploy:
+
+1. Publish `best.pt` as a **GitHub release asset** on this repository
+   (Releases → Draft a new release → attach the file). This keeps the binary
+   out of git history while still giving it a stable public URL.
+2. In Streamlit Community Cloud, open the app's **Settings → Secrets** and add:
+   ```toml
+   weights_url = "https://github.com/<owner>/<repo>/releases/download/<tag>/best.pt"
+   ```
+   (Equivalently, set an `ASSIS_FOD_WEIGHTS_URL` environment variable.)
+
+The app downloads the weights once on first run and caches them. A local
+`--weights` path, when supplied, always takes precedence over the URL.
+
 ## Relationship to the ASSIS platform
 
 This module produces the same structured output format described in the ASSIS Technical Report §5.1 (time, location/camera ID, classification, confidence) so it can plug into the same reporting/SMS-integration layer as the PPE, badge-misuse, and fall-detection modules, rather than existing as a standalone tool.
 
 ## License
 
-MIT — see `LICENSE`. The FOD-A dataset has its own license/attribution terms; see the [dataset page](https://www.kaggle.com/datasets/kilogrand/foreign-object-debris-in-airports-fod-a-dataset) before redistributing any derived data.
+AGPL-3.0 — see `LICENSE`, matching the license used for Phase 1
+([`ASSIS-PPE-Detection`](https://github.com/sundevilaviator/ASSIS-PPE-Detection)).
+This means anyone who runs a modified version of this code as a network
+service must make that modified source available to users of the service,
+not just to people they distribute the software to directly. The FOD-A
+dataset has its own license/attribution terms; see the
+[dataset page](https://www.kaggle.com/datasets/kilogrand/foreign-object-debris-in-airports-fod-a-dataset)
+before redistributing any derived data.
