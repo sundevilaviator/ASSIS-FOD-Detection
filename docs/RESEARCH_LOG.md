@@ -303,9 +303,203 @@ script's own printed output:**
   (`results_by_light_level` / `results_by_weather` both null) — the real
   metadata CSV still hasn't been located in the live dataset.
 
-**Next planned session:** investigate the small-object miss cases
+---
+
+## 2026-08-23 — Second training run; split-reproducibility defect found and fixed
+
+**Done:**
+- Ran a second independent 100-epoch training run on the same source data
+  and the same `--seed 42` (Colab, A100). Completed after several
+  disconnects, resumed each time from the Drive checkpoint.
+
+  | Class | Instances | P | R | mAP50 | mAP50-95 |
+  |---|---|---|---|---|---|
+  | all | 793 | 0.997 | 0.989 | 0.993 | 0.958 |
+  | Wrench | 378 | 0.994 | 0.944 | 0.985 | 0.858 |
+  | Hammer | 109 | 0.999 | 1.000 | 0.995 | 0.963 |
+  | Screwdriver | 121 | 0.999 | 1.000 | 0.995 | 0.987 |
+  | SodaCan | 151 | 0.999 | 1.000 | 0.995 | 0.988 |
+  | Wood | 34 | 0.994 | 1.000 | 0.995 | 0.995 |
+
+- **Found a real reproducibility defect by comparing the two runs.** The
+  per-class test-set composition differed between run 1 and run 2 despite
+  identical source data and identical `--seed 42`:
+
+  | Class | Run 1 (2026-08-20) | Run 2 (2026-08-23) |
+  |---|---|---|
+  | Wrench | 375 | 378 |
+  | Hammer | 128 | 109 |
+  | Screwdriver | 113 | 121 |
+  | SodaCan | 134 | 151 |
+  | Wood | 43 | 34 |
+  | **total** | **793** | **793** |
+
+  Cause: `find_labeled_images()` in `src/data_prep.py` enumerated files with
+  `Path.rglob()`, which returns filesystem order. On ext4 that order comes
+  from a hash seeded per filesystem — stable on one machine, different on
+  another. Seeding the shuffle does not make the split reproducible when the
+  list being shuffled arrives in a different order. The two runs were on
+  different Colab VMs, which is exactly the condition that exposes it.
+
+  This was invisible in the split manifest: `n_test`, `n_train_base`, and the
+  bucket counts were identical across both runs, because those are aggregates.
+  Only the per-class breakdown printed by the training run revealed it.
+
+  Fixed by sorting the enumeration before it reaches the seeded shuffle.
+  Five regression tests added (`tests/test_split_reproducibility.py`),
+  including a sanity test that a *different* seed still changes the split —
+  without which, sorting everything and never shuffling would pass. Verified
+  that the guarding test genuinely fails when the fix is reverted; the
+  cross-creation-order test does not fail on ext4 and is documented as such
+  in the file rather than left to look load-bearing. All 32 tests pass.
+
+**What this means for the numbers already reported:**
+- Run 1's and run 2's results were computed on **different held-out test
+  sets**. They are two valid measurements, not a repeat of one measurement.
+  Neither is invalidated, but they should not be described as identical
+  conditions, and any claim of "reproducible with seed 42" was not true for
+  runs on different machines before this fix.
+- That the two runs agree within roughly a percentage point on overall
+  mAP (0.995/0.964 vs 0.993/0.958) across *different* test splits is
+  arguably stronger evidence of stability than two runs on one split would
+  have been — but it is evidence of a different thing, and should be
+  described as such.
+- Splits built with `data_prep.py` from this commit onward are reproducible
+  across machines. Splits built before it are not, including both runs above.
+
+**Does NOT yet show:**
+- The FAA benchmark has not yet been re-run against run 2's weights, so
+  there is no second small-object detection figure to compare against run
+  1's 52.2%. Until that exists, 52.2% is a single measurement.
+- No cross-site validation, no calibrated size measurement, no tire-fragment
+  coverage — all unchanged from the 2026-08-20 entry.
+
+**Second FAA benchmark (same session), and what two measurements actually
+support:**
+
+Ran `src/benchmark_faa.py` against run 2's weights on run 2's held-out split.
+Report: `docs/benchmark_results/benchmark_20260823T003420Z.md` / `.json`.
+
+| Bucket | Ground truth | Run 1 detected | Run 2 detected |
+|---|---|---|---|
+| Small | 46 | 24 (52.2%) | 22 (47.8%) |
+| Medium | 222 | 221 (99.5%) | 219 (98.6%) |
+| Large | 525 | 525 (100%) | 524 (99.8%) |
+
+False positives per image: 0.0101 (run 1) vs 0.0214 (run 2). Mean
+localization error: 0.296% vs 0.322% of frame diagonal.
+
+Note the bucket-level ground-truth counts are identical (46 / 222 / 525)
+even though the per-class composition differed. That is consistent with the
+splitter's design: it draws `test_frac` from each size bucket, so bucket
+totals are fixed by the source composition while *which* images land in each
+bucket varied under the ordering defect described above.
+
+**Statistical reading — this corrects how the small-object figure should be
+quoted:**
+- The two runs differ by 0.043 (52.2% vs 47.8%), against a standard error of
+  the difference of 0.104. That is 0.42 standard errors: the runs are not
+  distinguishable from each other. The measurement is stable.
+- With only 46 small-object instances per run, a single run's 95% Wilson
+  interval is roughly ±14 percentage points (run 1: [38.1%, 65.9%]; run 2:
+  [34.1%, 61.9%]). **Quoting "52.2%" implies a precision this sample does not
+  support.** Earlier entries in this log and the first versions of the
+  outreach documents did exactly that; this entry supersedes them on that
+  point.
+- Pooled across both runs (46/92): **50.0%, 95% CI [40.0%, 60.0%]**. This is
+  the figure to quote, with the interval attached.
+- The conclusion is robust regardless: the entire confidence interval sits
+  far below the AC's referenced 90% threshold. "Small-object detection falls
+  well short of the FAA threshold" is well supported; any specific decimal
+  is not.
+- For reference, reaching a ±10-point margin at p≈0.5 would need roughly 96
+  small-object instances; ±5 points would need roughly 384. The current
+  held-out split provides 46. Enlarging the small-object test set is
+  therefore a prerequisite for any tighter claim, and is a more useful next
+  step than further repeat runs at this sample size.
+
+**Does NOT yet show:**
+- Medium and large results (98.6–100%) are on the same held-out-split basis
+  and carry the same limitation as everything else here: not cross-site, not
+  calibrated to physical size.
+- The false-positive rate roughly doubled between runs (0.0101 → 0.0214).
+  Both are small in absolute terms, but with no per-day conversion available
+  this is not comparable to the AC's ceiling, and two points is not a trend.
+- Light/weather stratification still not run; metadata CSV still not located.
+
+**Next planned session:** enlarge the small-object evaluation set — either by
+raising `test_frac` for the small bucket specifically or by extending to
+FOD-A's small-fastener classes (Bolt, Nut, Washer, Screw, BoltWasher,
+BoltNutSet), which are both more numerous and more operationally
+representative than the current five-class subset. Repeat runs at n=46 will
+not narrow the interval.
+
+---
+
+**Next planned session (from 2026-08-20):** investigate the small-object miss cases
 specifically (which of Wrench/Hammer/Screwdriver/SodaCan/Wood account for
 the 22 misses, and at what size/confidence) to decide whether more
 epochs, different augmentation, or more small-object training data is the
 right next lever — rather than assuming any one fix. Continue toward the
 MKS pilot test and the light/weather metadata CSV as separately planned.
+
+---
+
+## 2026-08-28 — Vendor collateral reviewed; one gap claim withdrawn
+
+**Done:**
+- Reviewed primary-source vendor material obtained at the AAAE Airport
+  Operations & Technology Symposium: Illuminex AI's InspectEx platform
+  overview, its FOD product sheet (fod.ai), and its PIDS product sheet;
+  plus Moog's Tarsier FOD product page and the Moog/QinetiQ licensing
+  announcement. Until now the landscape table rested on secondary sources.
+
+**Corrections made to `docs/GAP_ANALYSIS_SUMMARY.md`:**
+
+1. **A gap claim was wrong and has been withdrawn.** The analysis previously
+   asserted that "no existing system amortizes FOD detection cost across
+   other safety functions" and that "every vendor reviewed sells FOD
+   detection as a standalone purchase." Illuminex AI's InspectEx is exactly
+   such a platform: FOD AI, PIDS AI, SnowPro AI, EdgeGuard, and a
+   forthcoming Surface AI share sensor and cloud infrastructure, with
+   "additional plug and play applications" marketed as the expansion path.
+   The claim is struck through in place rather than deleted. It had already
+   propagated into outreach documents, which is why it is recorded here
+   rather than quietly fixed.
+
+2. **The surviving differentiator is narrower.** Every reviewed system,
+   Illuminex included, requires dedicated sensor hardware and delivers
+   coverage as a periodic inspection pass. Illuminex lowers the vehicle cost
+   by mounting on vehicles the airport already owns, but the sensors are
+   still a new purchase. The defensible ASSIS distinction is *existing fixed
+   CCTV/PTZ cameras and continuous coverage* versus *new sensors and
+   inspection passes* — not multi-function amortization, which Illuminex
+   also does.
+
+3. **The AC-terms claim needed a qualifier.** Vendors do publish performance
+   figures; Moog's Tarsier page advertises "100% detection out to 3,168
+   feet" and a best-in-class ranking in FAA testing. That is a range claim
+   with no object size class, no false-alarm rate, and no location accuracy,
+   so it does not answer AC 150/5220-24's questions and is not comparable
+   across systems. The gap is the absence of a *common measure*, not the
+   absence of published numbers. Reworded accordingly.
+
+4. **Tarsier attribution updated.** QinetiQ developed it; Moog holds an
+   exclusive license and commercializes it through Moog Digital Airfield
+   Solutions across Europe, Asia Pacific and the Americas.
+
+5. **Illuminex maturity understated.** Previously logged as "2026 trials."
+   It is a productized platform with Standard and Premium tiers (50 ft
+   inspection width at up to 25 mph; 100 ft at up to 50 mph, expandable with
+   LiDAR and thermal). Updated.
+
+**Does NOT change:**
+- The environmental-stratification gap: re-confirmed against the new
+  collateral. No reviewed vendor publishes results broken out by lighting or
+  weather condition.
+- The small-object result (50.0%, 95% CI [40.0%, 60.0%], n = 92) and every
+  limitation recorded on 2026-08-23.
+
+**Action required outside this repository:** the withdrawn claim appears in
+outreach and petition materials and must be corrected there before any of
+them are sent.

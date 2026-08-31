@@ -119,16 +119,70 @@ def draw_detections(image: Image.Image, detections: list[dict]) -> Image.Image:
     return annotated
 
 
+# Measured performance, kept as data rather than prose so that these figures
+# have exactly one definition in the app and can be checked against
+# docs/RESEARCH_LOG.md. Pooled over two independent 100-epoch runs
+# (2026-08-20, 2026-08-23), each benchmarked on its own held-out split.
+# See docs/benchmark_results/. Do NOT quote the individual runs' small-object
+# figures (52.2% / 47.8%) separately: they differ by 0.42 standard errors and
+# a single run's 95% interval is roughly +/-14 points.
+MEASURED_PERFORMANCE = (
+    # (size bucket, pooled detection rate, 95% CI or run range, n)
+    ("Large", "99.8-100%", "range across two runs", 525),
+    ("Medium", "98.6-99.5%", "range across two runs", 222),
+    ("Small", "50.0%", "95% CI 40.0-60.0%", 92),
+)
+
+FAA_SMALL_OBJECT_THRESHOLD_NOTE = (
+    "FAA AC 150/5220-24 references a 90% detection threshold for small objects. "
+    "The entire confidence interval for small-object detection above sits below "
+    "that threshold. This shortfall is reported rather than omitted: small-object "
+    "detection is the unsolved part of this problem, and stating where a federal "
+    "standard is not met is more useful than reporting only favourable figures."
+)
+
+
+def _render_measured_performance() -> None:
+    """Show measured benchmark results up front, including the bad one.
+
+    This lives in the demo because the demo is the part strangers actually
+    open. Someone who uploads a photo of a large object will see a confident
+    detection and may reasonably over-infer from it; the small-object result
+    is the number that bounds what this model can currently be trusted to do.
+    """
+    with st.expander("Measured performance on FOD-A (read before interpreting results)", expanded=False):
+        st.markdown(
+            "| Object size | Detection rate | Uncertainty | Ground-truth instances |\n"
+            "|---|---|---|---|\n"
+            + "\n".join(
+                f"| {bucket} | {rate} | {interval} | {n} |"
+                for bucket, rate, interval, n in MEASURED_PERFORMANCE
+            )
+        )
+        st.warning(FAA_SMALL_OBJECT_THRESHOLD_NOTE)
+        st.markdown(
+            "**Limitations.** FOD-A images carry no calibrated camera geometry, so "
+            "\"size\" here is a bounding-box-area proxy, not a measured centimetre "
+            "size. Results are from a held-out split of one public dataset — not "
+            "cross-site, not validated at an operating airport, and not evaluated "
+            "against tire-fragment or rubber debris, which FOD-A does not cover. "
+            "Full detail and dated history: `docs/RESEARCH_LOG.md`."
+        )
+
+
 def main() -> None:
     args = parse_args()
 
     st.set_page_config(page_title="ASSIS — FOD Detection Demo", layout="wide")
     st.title("ASSIS — Foreign Object Debris (FOD) Detection")
     st.caption(
-        "Phase 2 research demo. Human-in-the-loop: detections are candidates for "
-        "operator review, not automated alerts to a physical system. "
-        "See the repository README for scope and known limitations."
+        "Phase 2 of the AI-Integrated Airport Safety and Security Intelligence "
+        "System (ASSIS). Research demo, not a certified or deployed product. "
+        "Human-in-the-loop: detections are candidates for operator review, not "
+        "automated alerts to a physical system."
     )
+
+    _render_measured_performance()
 
     cfg_path = st.sidebar.text_input("Config path", str(args.config))
     weights_path = st.sidebar.text_input("Weights path", str(args.weights) if args.weights else "")

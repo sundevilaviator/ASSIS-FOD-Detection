@@ -21,6 +21,7 @@ proxy, not a physical centimeter measurement.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import shutil
@@ -105,16 +106,25 @@ def find_labeled_images(root: Path) -> list[LabeledImage]:
 
     images_dir = root / "images"
     labels_dir = root / "labels"
+    # NOTE: rglob() returns filesystem order, which is NOT stable across
+    # machines or filesystems (ext4 orders directory entries by a hash that
+    # uses a per-filesystem seed). Feeding that unsorted order into a
+    # seeded shuffle makes the seed useless: the shuffle is deterministic
+    # but the list it shuffles is not, so the same seed produces different
+    # splits on different machines. This was caught by two 100-epoch runs
+    # on separate Colab VMs producing identical split *counts* but
+    # different per-class test composition. Sorting here is what actually
+    # makes --seed reproducible.
     if images_dir.exists() and labels_dir.exists():
         candidates = [
             (p, labels_dir / (p.stem + ".txt"))
-            for p in images_dir.rglob("*")
+            for p in sorted(images_dir.rglob("*"))
             if p.suffix.lower() in IMG_EXTS
         ]
     else:
         candidates = [
             (p, p.with_suffix(".txt"))
-            for p in root.rglob("*")
+            for p in sorted(root.rglob("*"))
             if p.suffix.lower() in IMG_EXTS
         ]
 
@@ -144,6 +154,34 @@ def augment_copy(src_img: Path, dst_img: Path, seed: int) -> None:
     im.save(dst_img, quality=95)
 
 
+
+def split_fingerprints(
+    train_items: list["LabeledImage"],
+    test_items: list["LabeledImage"],
+    test_by_bucket: dict[str, list["LabeledImage"]],
+) -> dict[str, str]:
+    """SHA-256 over the sorted membership of each split.
+
+    Aggregate counts are not a reproducibility check. The 2026-08-23 defect
+    produced identical bucket totals on two machines while the actual images
+    in each bucket differed; only the per-class breakdown printed by training
+    revealed it. Hashing sorted membership catches that class of error
+    directly: same source + same seed must give the same digest, and any
+    difference in WHICH images landed where changes it.
+
+    Sorted before hashing so the digest depends on membership, never on
+    enumeration order.
+    """
+    def digest(items) -> str:
+        names = sorted(i.image_path.name for i in items)
+        return hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
+
+    out = {"train": digest(train_items), "test": digest(test_items)}
+    for bucket, items in sorted(test_by_bucket.items()):
+        out[f"test_{bucket}"] = digest(items)
+    return out
+
+
 def build_split(
     source: Path,
     out: Path,
@@ -152,6 +190,7 @@ def build_split(
     oversample_factor: int,
     class_names: list[str],
     seed: int = 42,
+    small_test_frac: float | None = None,
 ) -> None:
     rng = random.Random(seed)
     items = find_labeled_images(source)
@@ -180,10 +219,19 @@ def build_split(
     # this matters because it's exactly the set the FAA benchmark script scores.
     test_items: list[LabeledImage] = []
     train_items: list[LabeledImage] = []
+    test_by_bucket: dict[str, list[LabeledImage]] = {}
     for bucket, imgs in by_bucket.items():
         imgs = imgs[:]
         rng.shuffle(imgs)
-        n_test = max(1, int(len(imgs) * test_frac)) if imgs else 0
+        # The small bucket can take a larger held-out fraction than the rest.
+        # Rationale: small-object detection is the result that actually bounds
+        # what this model can be claimed to do, and its confidence interval is
+        # set by how many small instances are in the TEST set. Widening the
+        # split only for that bucket buys precision where it matters without
+        # discarding training data from buckets that are already at ~99%.
+        frac = small_test_frac if (bucket == "small" and small_test_frac is not None) else test_frac
+        n_test = max(1, int(len(imgs) * frac)) if imgs else 0
+        test_by_bucket[bucket] = imgs[:n_test]
         test_items.extend(imgs[:n_test])
         train_items.extend(imgs[n_test:])
 
@@ -235,10 +283,26 @@ def build_split(
         "n_train_base": len(train_items),
         "n_train_small_oversampled": small_count * oversample_factor,
         "n_test": len(test_items),
-        "test_bucket_counts": {b: len(v) for b, v in by_bucket.items()},
+        # NOTE: this key previously reported len(by_bucket[b]) — the count of
+        # every image in each bucket, NOT the held-out counts, despite its
+        # name. That mislabelling is why the 2026-08-23 split-ordering defect
+        # was invisible in the manifest: source bucket totals are identical
+        # across runs by construction, so the manifest agreed while the actual
+        # test sets differed. Both are now reported, under honest names.
+        "source_bucket_counts": {b: len(v) for b, v in by_bucket.items()},
+        "test_bucket_counts": {b: len(v) for b, v in test_by_bucket.items()},
         "oversample_factor": oversample_factor,
         "small_object_max_area_pct": small_object_max_area_pct,
+        "test_frac": test_frac,
+        "small_test_frac": small_test_frac,
         "seed": seed,
+        # Content fingerprint of the actual split membership. Two machines
+        # building a split from the same source with the same seed must
+        # produce the same fingerprints. This is what makes the
+        # reproducibility claim checkable instead of asserted — compare these
+        # strings, not the aggregate counts, which can match while the
+        # membership differs.
+        "fingerprints": split_fingerprints(train_items, test_items, test_by_bucket),
     }
     (out / "split_manifest.json").write_text(json.dumps(manifest, indent=2))
     print(f"\nWrote split to {out}")
@@ -266,6 +330,11 @@ def main() -> None:
     ap.add_argument("--source", type=Path, help="Path to a YOLO-format dataset (required with --build-split).")
     ap.add_argument("--small-object-max-area-pct", type=float, default=0.5)
     ap.add_argument("--test-frac", type=float, default=0.15)
+    ap.add_argument("--small-test-frac", type=float, default=None,
+                    help="Held-out fraction for the SMALL bucket only. Raising this "
+                         "narrows the confidence interval on the small-object "
+                         "detection rate, which is the figure that bounds what this "
+                         "model can be claimed to do. Defaults to --test-frac.")
     ap.add_argument("--oversample-factor", type=int, default=3,
                      help="Number of augmented duplicates to add per small-object training image.")
     ap.add_argument("--seed", type=int, default=42)
@@ -287,6 +356,7 @@ def main() -> None:
             out=args.out,
             small_object_max_area_pct=args.small_object_max_area_pct,
             test_frac=args.test_frac,
+            small_test_frac=args.small_test_frac,
             oversample_factor=args.oversample_factor,
             class_names=class_names,
             seed=args.seed,

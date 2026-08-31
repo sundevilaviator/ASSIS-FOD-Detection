@@ -6,11 +6,11 @@ This repository contains the Phase 2 FOD detection module of ASSIS. Phase 1 (PPE
 
 ## Why this scope
 
-Commercial FOD detection (QinetiQ Tarsier, Xsight FODetect, Stratech iFerret) is fixed radar/EO infrastructure costing $1M–$8M+, built for large hubs. A newer wave of vehicle-mounted camera+AI systems (e.g., Illuminex AI's FODᴬᴵ, in 2026 trials) lowers cost but still requires dedicated hardware and runs on a periodic inspection cycle, not continuous coverage. **No reviewed system performs FOD scanning using an airport's already-installed security CCTV/PTZ cameras** — which is the design principle ASSIS uses for its other modules (PPE, badge misuse, fall detection). This module applies that same principle to FOD:
+Commercial FOD detection (QinetiQ Tarsier, Xsight FODetect, Stratech iFerret) is fixed radar/EO infrastructure costing $1M–$8M+, built for large hubs. A newer wave of vehicle-mounted camera+AI systems — notably Illuminex AI's FOD AI, delivered on its InspectEx platform alongside perimeter-intrusion, snowbank, edge-light and (announced) pavement-condition modules — lowers cost by mounting on vehicles an airport already operates, and does amortize development across several airfield applications. It still requires dedicated sensor hardware, and it covers the airfield in periodic inspection passes rather than continuously. **No reviewed system performs FOD scanning using an airport's already-installed security CCTV/PTZ cameras** — which is the design principle ASSIS uses for its other modules (PPE, badge misuse, fall detection). This module applies that same principle to FOD:
 
 - **Small-object focus.** The most widely used public benchmark, [FOD-A](https://www.kaggle.com/datasets/kilogrand/foreign-object-debris-in-airports-fod-a-dataset), is dominated by large, easily-detected debris. Real airfield FOD is predominantly small items (nuts, bolts, screws, metal fragments) under 4 cm — the size class where detection models measurably degrade. This module explicitly builds and evaluates a small-object-weighted training split.
 - **FAA-standard benchmarking.** Every FOD detection claim is ultimately measured against [FAA AC 150/5220-24](https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_150_5220-24.pdf). None of the commercial systems reviewed publish results in the AC's own terms (object size class, false-alarm rate per 90-day average, location accuracy). This repo includes a benchmark script (`src/benchmark_faa.py`) that reports exactly those metrics against model output, so performance claims are checkable, not asserted.
-- **No new hardware.** The training/inference pipeline is designed for existing fixed or PTZ camera feeds — not a new radar tower or a dedicated inspection vehicle. This is a cost/deployability differentiator, not a size ceiling: it lowers the marginal cost of adding FOD coverage at *any* airport that already has ASSIS's other modules (PPE, badge misuse, fall detection) running on the same camera infrastructure — the incremental cost of one more detection head on an existing feed, versus a new capital purchase.
+- **No new hardware.** The training/inference pipeline is designed for existing fixed or PTZ camera feeds — not a new radar tower or a dedicated inspection vehicle. This is a cost/deployability differentiator, not a size ceiling: it lowers the marginal cost of adding FOD coverage at *any* airport that already has ASSIS's other modules (PPE, badge misuse, fall detection) running on the same camera infrastructure — the incremental cost of one more detection head on an existing feed, versus a new capital purchase. Stated precisely: multi-function amortization on shared infrastructure is **not** unique to ASSIS — Illuminex's InspectEx does this too, across its own sensor hardware. The narrower distinction that does hold is *which* infrastructure is shared: already-installed fixed cameras giving continuous coverage, versus purchased sensors giving inspection-pass coverage. See `docs/GAP_ANALYSIS_SUMMARY.md`, where the broader claim is struck through and withdrawn.
 - **Human-in-the-loop.** Consistent with the rest of ASSIS, this module classifies and localizes candidate FOD for operator review; it does not trigger any automated physical response.
 
 ## What's in this repository
@@ -36,8 +36,9 @@ This is an active research module, not a certified or deployed product. See `doc
 
 - [x] Repository scaffold, VOC→YOLO conversion, data pipeline, training/inference/benchmark scripts, and demo app
 - [x] Every script's logic unit-tested against hand-computed values; the full pipeline (conversion → split → train → infer → benchmark, including the environmental-metadata breakdown) has been run end to end against synthetic data and confirmed to execute without error
-- [ ] Model trained and evaluated on the **real** FOD-A small-object split (pending — the synthetic-data run above proves the pipeline works, not that the model detects anything real; see Quickstart)
-- [ ] Results reported in FAA AC 150/5220-24 terms against real data
+- [x] Model trained and evaluated on the **real** FOD-A small-object split — two independent 100-epoch YOLOv8 runs (Colab A100, 2026-08-20 and 2026-08-23), each benchmarked on its own held-out split
+- [x] Results reported in FAA AC 150/5220-24 terms against real data — see `docs/benchmark_results/`. Detection by size bucket: large 99.8–100%, medium 98.6–99.5%, **small 50.0% pooled across both runs, 95% CI [40.0%, 60.0%], n = 92**. The small-object result sits entirely below the Advisory Circular's referenced 90% threshold; that shortfall is the finding, and it is reported rather than tuned away. Individual-run figures (52.2% and 47.8%) differ by 0.42 standard errors and should not be quoted separately — at 46 small-object instances per run, a single run's interval is roughly ±14 points, so any specific decimal implies a precision this sample does not support
+- [x] Split reproducibility defect found and fixed (2026-08-23) — `find_labeled_images()` fed filesystem-ordered enumeration into a seeded shuffle, so `--seed 42` produced different splits on different machines. Found by comparing per-class test composition across the two runs; invisible in the split manifest, whose aggregate counts matched. Fixed by sorting before the shuffle, with five regression tests (`tests/test_split_reproducibility.py`). **Splits built before that commit — including both runs above — are not reproducible across machines.** The two runs are therefore two measurements on different held-out splits, not a repeat of one measurement
 - [ ] Multi-airport / cross-site validation
 - [ ] Thermal/RGB fusion, open-world generalization (roadmap, not in scope for this module's first release)
 - [ ] Camera/CCTV integration — **not started, and not authorized.** This module trains and evaluates against the FOD-A dataset only. No camera survey, testing, or deployment work has been done or is assumed as a next step.
@@ -104,6 +105,13 @@ is provided. To deploy:
 
 The app downloads the weights once on first run and caches them. A local
 `--weights` path, when supplied, always takes precedence over the URL.
+
+`packages.txt` pins the one system library (`libgl1`) that OpenCV — pulled in
+by `ultralytics` — needs at import time. Streamlit Community Cloud's base
+image does not include it, and without this file model loading fails with
+`libGL.so.1: cannot open shared object file`. Do **not** also list
+`libglib2.0-0`: on that platform's Debian 11 image it pulls an uninstallable
+`libffi7` and breaks the whole dependency install.
 
 ## Relationship to the ASSIS platform
 
