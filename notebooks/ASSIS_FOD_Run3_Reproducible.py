@@ -206,6 +206,7 @@ print("benchmarking:", weights)
 !python {REPO}/src/benchmark_faa.py \
     --weights {weights} \
     --data /content/fod-a-split-run3/data.yaml \
+    --config {REPO}/configs/fod.yaml \
     --out {REPO}/docs/benchmark_results
 
 # %%
@@ -296,6 +297,7 @@ assert latest is not None, "no completed run"
 !python {REPO}/src/benchmark_faa.py \
     --weights {latest}/weights/best.pt \
     --data /content/fod-a-split-run3/data.yaml \
+    --config {REPO}/configs/fod.yaml \
     --metadata-csv {cat[0].path} \
     --out {REPO}/docs/benchmark_results
 

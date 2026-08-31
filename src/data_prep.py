@@ -31,6 +31,13 @@ from pathlib import Path
 import yaml
 from PIL import Image, ImageEnhance
 
+# Resolve the default config against the REPOSITORY, not the working directory.
+# `Path("configs/fod.yaml")` is relative to wherever the process happens to be
+# started, so every invocation from outside the repo root failed with a bare
+# FileNotFoundError naming a path the caller never typed. Three separate call
+# sites hit this before the default itself was fixed.
+DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "configs" / "fod.yaml"
+
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 
@@ -320,7 +327,7 @@ def load_class_names(config_path: Path) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", type=Path, default=Path("configs/fod.yaml"))
+    ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
 
     ap.add_argument("--download", action="store_true", help="Download a Kaggle dataset.")
     ap.add_argument("--dataset", default="kilogrand/foreign-object-debris-in-airports-fod-a-dataset")

@@ -8,12 +8,13 @@ because that is what none of the commercial systems reviewed in the Phase 2
 gap analysis publish. Specifically:
 
   - Detection rate (recall) broken out by object-size bucket, with the
-    small-object bucket checked against the AC's >=90% requirement.
+    small-object bucket checked against the AC's >=90% requirement
+    (section 3.2.b(1)(c)).
   - False positives per image, as a proxy for the AC's false-alarm-rate
     limit (see the LIMITATIONS section below for exactly what this is and
     isn't measuring).
   - Localization error, reported in pixels / % of frame diagonal — again a
-    proxy for the AC's 5-meter requirement, because FOD-A (and most public
+    proxy for the AC's 5-meter requirement (section 3.2.b(2)), because FOD-A (and most public
     FOD imagery) carries no calibrated ground-sample-distance.
 
 This script is intentionally honest about what it can and can't claim. Read
@@ -32,6 +33,13 @@ from pathlib import Path
 
 import yaml
 
+# Resolve the default config against the REPOSITORY, not the working directory.
+# `Path("configs/fod.yaml")` is relative to wherever the process happens to be
+# started, so every invocation from outside the repo root failed with a bare
+# FileNotFoundError naming a path the caller never typed. Three separate call
+# sites hit this before the default itself was fixed.
+DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "configs" / "fod.yaml"
+
 # Candidate column names to auto-detect in an optional FOD-A-style metadata
 # CSV (light-level / weather categorization, which FOD-A ships separately
 # from its bounding-box annotations per Munyer et al. 2021). These are best
@@ -48,7 +56,14 @@ LIMITATIONS = """\
 LIMITATIONS (read before citing any number above):
 
 1. Size buckets are a bounding-box PIXEL-AREA proxy for the AC's physical
-   centimeter thresholds (3.1-4.3 cm reference objects, 10.2 cm cutoff).
+   centimeter thresholds (AC 150/5220-24 section 3.2.b(1), verified against
+   the primary document 2026-08-31). The AC's reference objects are a metal
+   cylinder 1.2 in (3.1 cm) high by 1.5 in (3.8 cm) diameter and a 1.7 in
+   (4.3 cm) sphere; its 90% group test covers items no larger than 4 in
+   (10 cm) in any dimension. Its 90% figure also applies to a SPECIFIED
+   GROUP of ten object types in a 100 ft square, not to arbitrary small
+   debris - so this bucket test is related to, but not the same as, the
+   AC's test.
    Public FOD imagery (including FOD-A) does not carry calibrated
    ground-sample-distance, so pixel area cannot be converted to real-world
    size without knowing camera height, angle, and focal length for each
@@ -56,7 +71,8 @@ LIMITATIONS (read before citing any number above):
    this dataset, not as verified centimeter classes.
 
 2. False-alarm rate is reported as false positives PER IMAGE, not per day.
-   The AC's false-alarm ceiling (<=1/day visual, <=3/day non-visual) is
+   The AC's false-alarm ceiling (section 3.2.b(7)(a): <=1/day visual,
+   <=3/day non-visual, each averaged over any 90 day period) is
    defined against a full runway scan cycle at a real airport. Converting
    this script's per-image rate into a per-day claim requires knowing the
    actual deployment's scan cadence (images per patrol / per camera cycle),
@@ -72,16 +88,23 @@ LIMITATIONS (read before citing any number above):
    for that as a planned, not yet completed, step.
 
 5. If --metadata-csv is supplied, light-level/weather breakdowns are
-   matched to images by filename stem only, and the CSV's column names are
-   auto-detected from a guessed candidate list (see IMAGE_COL_CANDIDATES /
-   LIGHT_COL_CANDIDATES / WEATHER_COL_CANDIDATES at the top of this file) —
-   those candidates were NOT verified against FOD-A's actual released CSV
-   in the session that wrote this script (no network access to confirm).
-   Check the printed "[metadata] Loaded light/weather labels for N images"
-   line against the real image count before trusting this breakdown; if it
-   loaded 0 or an implausibly low number, the column names likely need to
-   be passed explicitly via --metadata-image-col/--metadata-light-col/
-   --metadata-weather-col.
+   matched to images by filename stem. FOD-A's categorization file was
+   inspected directly on 2026-08-31: it is
+   All_Dataset_Utility_Files/FOD_categorization_annotations.csv in the
+   ORIGINAL-format distribution (not the Pascal VOC mirror), 33,863 rows,
+   columns File/Weather/Light, with INTEGER codes - Weather 0=Dry 1=Wet,
+   Light 0=Bright 1=Dim 2=Dark. That mapping was confirmed two independent
+   ways: by matching row counts to the FOD-A paper's Table I, and against
+   the dataset's own category_information.txt. Note the light ordering:
+   0 is Bright and 2 is Dark, so an assumed ordering would invert the
+   result.
+
+   The Pascal VOC mirror CANNOT be joined to this file. It contains 33,793
+   images numbered contiguously 000000-033792 with no gaps, meaning 70
+   images were dropped and the remainder renumbered; the correspondence to
+   the original ordering is unrecoverable from filenames. Stratified
+   results therefore require training from the original-format
+   distribution. Do not stratify a VOC-trained model against this CSV.
 
 Bottom line: this script produces a consistent, reproducible way to track
 progress against the AC's structure over time. It does not, by itself,
@@ -235,6 +258,7 @@ def run_benchmark(
     out_dir: Path,
     iou_thresh: float,
     conf: float,
+    imgsz: int | None = None,
     metadata_csv: Path | None = None,
     metadata_image_col: str | None = None,
     metadata_light_col: str | None = None,
@@ -291,7 +315,11 @@ def run_benchmark(
         weather_key = img_meta.get("weather")
 
         gt_boxes = load_gt_labels(labels_dir / (img_path.stem + ".txt"), img_w, img_h)
-        pred = model.predict(source=str(img_path), conf=conf, verbose=False)[0]
+        # imgsz is passed explicitly when set. Inference resolution materially
+        # changes small-object recall, so a benchmark that does not state the
+        # resolution it ran at cannot be compared against another one.
+        _kw = {"imgsz": imgsz} if imgsz else {}
+        pred = model.predict(source=str(img_path), conf=conf, verbose=False, **_kw)[0]
         pred_boxes = [tuple(v.item() for v in b) for b in pred.boxes.xyxy] if len(pred.boxes) else []
 
         matched_pred = set()
@@ -340,6 +368,7 @@ def run_benchmark(
         "data": str(data_yaml),
         "iou_threshold": iou_thresh,
         "confidence_threshold": conf,
+        "inference_imgsz": imgsz,  # None = Ultralytics default (640)
         "n_images_evaluated": total_images,
         "results_by_size_bucket": results,
         "results_by_light_level": results_by_light,
@@ -435,10 +464,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--weights", type=Path, required=True)
     ap.add_argument("--data", type=Path, required=True, help="data.yaml from src/data_prep.py --build-split")
-    ap.add_argument("--config", type=Path, default=Path("configs/fod.yaml"))
+    ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     ap.add_argument("--out", type=Path, default=Path("docs/benchmark_results"))
     ap.add_argument("--iou-thresh", type=float, default=0.5)
     ap.add_argument("--conf", type=float, default=0.35)
+    ap.add_argument("--imgsz", type=int, default=None,
+                    help="Inference resolution. Raising it is the cheapest lever on "
+                         "small-object recall and needs no retraining. Recorded in the "
+                         "output so results at different resolutions are never confused.")
     ap.add_argument(
         "--metadata-csv", type=Path, default=None,
         help="Optional FOD-A-style light-level/weather metadata CSV, joined by filename stem. "
@@ -451,6 +484,7 @@ def main() -> None:
 
     run_benchmark(
         args.weights, args.data, args.config, args.out, args.iou_thresh, args.conf,
+        args.imgsz,
         metadata_csv=args.metadata_csv,
         metadata_image_col=args.metadata_image_col,
         metadata_light_col=args.metadata_light_col,

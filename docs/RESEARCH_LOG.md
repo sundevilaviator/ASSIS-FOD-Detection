@@ -378,7 +378,7 @@ script's own printed output:**
 support:**
 
 Ran `src/benchmark_faa.py` against run 2's weights on run 2's held-out split.
-Report: `docs/benchmark_results/benchmark_20260823T003420Z.md` / `.json`.
+Report: `benchmark_20260823T003420Z.md` / `.json`. **NOT PRESERVED — corrected 2026-08-31.** That file was written to a Colab VM that was later recycled, and no copy reached Drive or this repository. Run 2's figures below are transcribed from the session output and cannot be re-derived from a committed artifact; treat them accordingly. Runs 1 (`benchmark_20260820T182741Z`) and 3 (`benchmark_20260831T195805Z`) ARE committed under `docs/benchmark_results/`. Step 11 of the run 3 notebook now copies benchmark output to Drive for exactly this reason.
 
 | Bucket | Ground truth | Run 1 detected | Run 2 detected |
 |---|---|---|---|
@@ -582,3 +582,125 @@ them are sent.
 `docs/benchmark_results/`, and propagate the corrected figures to `README.md`,
 `app/streamlit_app.py`, the two outreach PDFs, the expert-letter template, and
 the RFE cover letter in a single pass.
+
+---
+
+## 2026-08-31 (session 2) — Run 3 benchmarked; AC thresholds verified against
+## the primary source; stratification blocked and characterised
+
+**Run 3 FAA benchmark** (`docs/benchmark_results/benchmark_20260831T195805Z.*`),
+run 3 weights on run 3's held-out split, imgsz 640, conf 0.35, IoU 0.5:
+
+| Bucket | Detected | Rate | 95% Wilson CI | n |
+|---|---|---|---|---|
+| Small | 64 | **52.0%** | **[43.3%, 60.7%]** | 123 |
+| Medium | 220 | 99.1% | | 222 |
+| Large | 523 | 99.6% | | 525 |
+
+False positives per image 0.0092. Mean localization error 0.284% of frame
+diagonal.
+
+**This is now the figure of record: 52.0%, 95% CI [43.3%, 60.7%], n = 123.**
+The interval is ±8.7 points against ±13.9 for either earlier run.
+
+**Not pooled with runs 1 and 2, deliberately.** All three splits draw from the
+same 309 small-object source images, so they are not independent samples;
+pooling would understate the interval. Run 3 supersedes them as the reported
+figure because it is reproducible (fingerprinted) and has the largest n. Runs
+1 and 2 remain in this log as earlier, consistent measurements on splits that
+cannot be rebuilt.
+
+**The three measurements agree.** 52.2%, 47.8%, 52.0%. Run 3 sits 0.29 standard
+errors from the earlier pooled figure — indistinguishable. The small-object
+shortfall is a stable property of the model, not sampling noise.
+
+**Overall mAP fell slightly and this is expected**, not a regression: mAP50
+0.988 / mAP50-95 0.951 against 0.995/0.964 (run 1) and 0.993/0.958 (run 2). The
+test set now holds 123 small-object images instead of 46, so it is harder. A
+higher score on a harder test set would have been the suspicious result.
+
+**Secondary metrics are best-of-three but are NOT claimed as improvements.**
+False positives per image (0.0092 vs 0.0101, 0.0214) and localization error
+(0.284% vs 0.296%, 0.322%) are single measurements on different test sets with
+no intervals attached. Best-of-three is what chance produces a third of the
+time.
+
+---
+
+**AC 150/5220-24 thresholds verified against the primary document.** Until now
+`configs/fod.yaml` carried these values from secondary reading. The AC itself
+(dated 09/30/2009) was obtained and read on this date. All five values are
+correct; each now carries its section reference in the config file.
+
+- 3.2.b(1)(c) — 90% of a specified group of objects, each no larger than 4 in
+  (10 cm) in any dimension, within a 100 ft square.
+- 3.2.b(2) — location information within 16 ft (5.0 m).
+- 3.2.b(1)(d) — two objects no more than 10 ft (3 m) apart identified separately.
+- 3.2.b(7)(a) — false alarms not to exceed one per day (visual) or three per day
+  (non-visual), averaged over any 90-day period.
+
+**One qualification now recorded rather than glossed:** the AC's 90% applies to
+a specified group of TEN object types placed in a 100 ft square, not to
+arbitrary small debris. This module applies the figure to a bounding-box-area
+"small" bucket. Related, not identical, and stated as such in
+`src/benchmark_faa.py`'s limitations block.
+
+**Two AC requirements found that strengthen the module's framing:**
+
+- 3.2.b(6)(c): *"All systems must demonstrate detection performance during
+  daylight, nighttime, and dawn/dusk operations."*
+- 3.2.b(6): systems *"must demonstrate the detection performance under both clear
+  and inclement weather conditions"*, with site-specific specifications for
+  clear weather, inclement weather, and post-storm recovery time.
+
+The lighting and weather stratification this module reports is therefore
+demonstrating something the Advisory Circular **requires**, not a reporting
+refinement invented here. Section 2.2.c adds that *"Dark-colored items made up
+nearly 50% of the FOD collected"*, so lighting performance is not a corner
+case. Section c also supplies primary-source backing for the small-object
+scope: *"over 60% of the FOD items were made of metal, followed by 18% ...
+rubber"* and *"Common FOD dimensions can be 1 in. by 1 in. (3 cm by 3 cm) or
+smaller."* The 18% rubber figure independently supports the tire-fragment gap.
+
+---
+
+**Environmental stratification: located, decoded, and blocked.**
+
+The categorization annotations were found. They ship with FOD-A's
+ORIGINAL-format distribution (8.9 GB as downloaded), not the Pascal VOC mirror
+used for training here:
+`FullDatasetV.2.1-400x400/All_Dataset_Utility_Files/FOD_categorization_annotations.csv`
+— 33,863 rows, columns File / Weather / Light, values as INTEGER codes.
+
+**Code mapping, confirmed two independent ways:**
+
+| | 0 | 1 | 2 |
+|---|---|---|---|
+| Weather | Dry (26,647) | Wet (7,216) | — |
+| Light | Bright (17,012) | Dim (12,464) | Dark (4,387) |
+
+Confirmed by matching row counts to the FOD-A paper's Table I, and against the
+dataset's own `category_information.txt` ("Weather: [Dry,Wet,] Light:
+[Bright,Dim,Dark,]"). **Note that 0 is Bright and 2 is Dark** — an assumed
+ordering would invert the finding and report best performance in darkness.
+
+**The join is not possible with the mirror in hand, and the stratification was
+therefore NOT run.** The VOC mirror contains 33,793 images numbered
+contiguously 000000–033792 with zero gaps: 70 images were dropped and the
+remainder renumbered, so the correspondence to the original ordering cannot be
+recovered from filenames. Assigning labels on a guessed alignment would
+produce a plausible-looking result that was wrong for most of the dataset.
+
+The earlier prediction of a ~70-row discrepancy in the CSV was wrong in
+detail: the ORIGINAL distribution matches the paper exactly at 33,863, and it
+is the Pascal VOC mirror that carries 33,793.
+
+**Closing this requires retraining from the original-format distribution**,
+where filenames and metadata correspond. That is a specific, characterised
+next step rather than an open question — which is a better position than this
+gap was in yesterday, even though no stratified number was produced.
+
+**Also added:** `src/benchmark_faa.py` now accepts `--imgsz` and records it in
+its output, since inference resolution materially changes small-object recall
+and a benchmark that does not state its own resolution cannot be compared with
+another one.

@@ -33,7 +33,12 @@ specific figure from this table in RFE material without that check.
   tower, inspection vehicle, or drone).
 - **Small-object detection is the documented weak point.** FOD-A, the most
   common public benchmark, is dominated by large objects; real airfield FOD
-  is predominantly small (nuts, bolts, screws, fragments).
+  is predominantly small. This is now cited to the primary source rather than
+  secondhand: AC 150/5220-24 section 2.2.c reports that in a one-year airport
+  study, *"over 60% of the FOD items were made of metal, followed by 18% of
+  the items being made of rubber"*, and that *"Common FOD dimensions can be
+  1 in. by 1 in. (3 cm by 3 cm) or smaller."* The 18% rubber figure also
+  supports the tire-fragment gap noted below.
 - **No vendor publishes results in FAA AC 150/5220-24's own three-part terms**
   (detection rate by size class, false-alarm rate per 90-day average,
   location accuracy in meters). Stated carefully, because vendors *do*
@@ -68,8 +73,33 @@ specific figure from this table in RFE material without that check.
   maintains. That distinction — **existing fixed cameras and continuous
   coverage, versus new sensors and inspection passes** — is the real
   differentiator, and it is a narrower claim than the one it replaces.
-- **No vendor or paper reviewed reports performance stratified by lighting
-  or weather condition, even though FOD-A itself ships that metadata.**
+- **The AC REQUIRES demonstrating performance across lighting and weather,
+  and no vendor or paper reviewed publishes it.** This is the strongest form
+  of the reporting gap, and it comes from the AC itself, verified against the
+  primary document on 2026-08-31:
+    - AC 150/5220-24 section 3.2.b(6)(c): *"All systems must demonstrate detection
+      performance during daylight, nighttime, and dawn/dusk operations."*
+    - Section 3.2.b(6): systems *"must demonstrate the detection performance under
+      both clear and inclement weather conditions"*, with site-specific
+      specifications for clear weather, inclement weather, and the recovery
+      time after rain or snow.
+    - Section 2.2.c notes *"Dark-colored items made up nearly 50% of the FOD
+      collected"* — so lighting performance is not a corner case.
+  Stratifying by lighting and weather is therefore demonstrating something the
+  Advisory Circular mandates, not a reporting refinement invented here. FOD-A's
+  own bright/dim/dark and dry/wet categories map almost directly onto it.
+- **The supporting metadata exists but cannot be joined to the mirror used
+  here.** FOD-A's categorization file (33,863 rows; Weather 0=Dry 1=Wet, Light
+  0=Bright 1=Dim 2=Dark, confirmed against both the paper's Table I and the
+  dataset's own `category_information.txt`) ships with the ORIGINAL-format
+  distribution. The Pascal VOC mirror used for training here renumbered its
+  33,793 images contiguously after dropping 70, so the correspondence is
+  unrecoverable from filenames. Closing this gap requires retraining from the
+  original-format distribution — recorded as a specific, characterised next
+  step rather than an open question.
+- **(Superseded phrasing, retained for the record.) No vendor or paper reviewed
+  reports performance stratified by lighting or weather condition, even though
+  FOD-A itself ships that metadata.**
   FOD-A (Munyer et al. 2021) includes light-level (bright/dim/dark) and
   weather (dry/wet) categorization separately from its bounding-box
   annotations — confirmed via the dataset's own paper and GitHub repo. None

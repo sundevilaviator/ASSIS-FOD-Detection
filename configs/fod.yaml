@@ -42,12 +42,45 @@ size_buckets:
     max_area_pct: null   # no upper bound
 
 # FAA AC 150/5220-24 pass/fail reference values used by src/benchmark_faa.py.
+# Every value below was verified against the primary source on 2026-08-31:
+# FAA AC 150/5220-24, "Airport Foreign Object Debris (FOD) Detection Equipment",
+# dated 09/30/2009. Section references are to that document. Do not change a
+# number here without re-reading the cited section.
 faa_ac_150_5220_24:
-  min_detection_rate_small_object: 0.90   # AC: >=90% of debris <=4in must be caught
+  # AC 150/5220-24 section 3.2.b(1)(c): "90 percent of the following group of objects when
+  # placed within a 100 ft by 100 ft (30 m by 30 m) square in the desired
+  # coverage area... each item must measure no larger than 4 in (10 cm) in any
+  # dimension". NOTE: the AC's 90% applies to a SPECIFIED GROUP of ten object
+  # types (asphalt chunk, runway light portion, crescent wrench, deep socket,
+  # tyre rubber, distorted metal strip, fuel cap, lug nut, hydraulic line, PVC
+  # pipe) - not to arbitrary small debris. This module applies the figure to a
+  # bounding-box-area "small" bucket, which is a related but NOT identical
+  # test. Reported as such; see docs/FAA_AC_150_5220-24_BENCHMARK.md.
+  min_detection_rate_small_object: 0.90
+  # AC 150/5220-24 section 3.2.b(7)(a)(i): "one per day as averaged over any 90 day period, for
+  # FOD detection systems with visual detection capabilities"
   max_false_alarms_per_day_visual: 1
+  # AC 150/5220-24 section 3.2.b(7)(a)(ii): three per day, same averaging, without visual
+  # detection capabilities
   max_false_alarms_per_day_non_visual: 3
+  # AC 150/5220-24 section 3.2.b(2): "location information for a detected object that is within
+  # 16 ft (5.0 m) of the actual FOD object location"
   max_location_error_m: 5.0
+  # AC 150/5220-24 section 3.2.b(1)(d): "Any two of the objects above, located no more than
+  # 10 ft (3 m) apart from each other, identified as separate objects"
   multi_object_min_separation_m: 3.0
+  # AC 150/5220-24 section 3.2.b(1): reference objects the system must detect outright -
+  # an unpainted metal cylinder 1.2 in (3.1 cm) high by 1.5 in (3.8 cm)
+  # diameter, and a 1.7 in (4.3 cm) sphere (a standard golf ball).
+  # AC 150/5220-24 section 3.2.b(1): mobile systems must meet this at a minimum 20 mph (30 km/h).
+  # AC 150/5220-24 section 3.2.b(6): systems "must demonstrate the detection performance under
+  # both clear and inclement weather conditions", with site-specific specs for
+  # clear, inclement, and post-storm recovery time.
+  # AC 150/5220-24 section 3.2.b(6)(c): "All systems must demonstrate detection performance
+  # during daylight, nighttime, and dawn/dusk operations."
+  #   -> The lighting and weather stratification this repo reports is therefore
+  #      demonstrating something the AC REQUIRES, not a reporting refinement
+  #      invented here. See docs/GAP_ANALYSIS_SUMMARY.md.
 
 # Default training hyperparameters (Ultralytics YOLOv8).
 training:
