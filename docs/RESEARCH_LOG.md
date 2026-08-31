@@ -503,3 +503,82 @@ MKS pilot test and the light/weather metadata CSV as separately planned.
 **Action required outside this repository:** the withdrawn claim appears in
 outreach and petition materials and must be corrected there before any of
 them are sent.
+
+---
+
+## 2026-08-31 — Run 3: reproducible split built, training started
+
+**Done:**
+- Built the run 3 split with the corrected enumeration ordering and the
+  enlarged small-object held-out fraction. Source: FOD-A Pascal VOC mirror,
+  33,793 XML files, 0 malformed, 31 distinct class names confirmed against
+  the live dataset. `configs/fod.yaml` restricts training to the same
+  five-class subset used in runs 1 and 2 (Wrench, Hammer, Screwdriver,
+  SodaCan, Wood), giving 5,295 labelled images.
+
+  | Bucket | Source images | Held out | Fraction |
+  |---|---|---|---|
+  | small | 309 | **123** | 0.40 |
+  | medium | 1,481 | 222 | 0.15 |
+  | large | 3,505 | 525 | 0.15 |
+  | **total** | **5,295** | **870** | |
+
+  Train base 4,425, plus 558 oversampled small-object images (186 × 3).
+
+- **Split fingerprints — the point of this run.** Anyone rebuilding from the
+  same source with `--seed 42 --test-frac 0.15 --small-test-frac 0.40` must
+  obtain these digests. Aggregate counts agreeing is *not* sufficient: that
+  is exactly what agreed across runs 1 and 2 while the membership differed.
+
+  ```
+  train        f39b2c6315530d27f1c180ac1a712b94900672d449aebec0de5e441a6db8d484
+  test         ce1efeeb3899ebe5111bf7092cef4115db19aa0323b0f5433d7f29bf90f78e7f
+  test_small   476227dd9dec9d26bf9d2a529754ac6bce2c49fd802cf4f1328e7cf835aab321
+  test_medium  92aab47ea0ba6be548da7e22437aaafe99be67e6165c024e8e21702da06e0546
+  test_large   8b9488036a2bbac3cd02d21d662a5e0c81fe03f862f3bbffe5133825e5b9a741
+  ```
+
+- Medium (222) and large (525) held-out counts are **identical to runs 1 and
+  2**, as intended: `--test-frac` was unchanged and the source composition is
+  fixed, so the only deliberate difference is the small bucket.
+
+**What this changes about precision:**
+- At n = 123 and p ≈ 0.5 the 95% interval is roughly ±8.8 points, against
+  ±14 at n = 46. The result will still be an interval and must still be
+  quoted with the interval attached — a wider sample does not license a
+  point estimate.
+
+**Defects found and fixed while running this (notebook, not pipeline):**
+- `voc_to_yolo.py` defaults `--config` to the relative path
+  `configs/fod.yaml`, which resolves against the working directory rather
+  than the repository. Two notebook cells omitted the argument and failed.
+- The image-copy step used `cp {IMAGES}/*.jpg ... 2>/dev/null`. A ~34,000-file
+  glob overflows the shell argument list, and redirecting stderr hid the
+  failure until Step 6 reported an empty dataset three cells later. Replaced
+  with a per-file `shutil.copy2` loop that prints its count. **Suppressing
+  stderr on a step whose failure surfaces downstream is the error here, not
+  the glob.**
+- `src/colab_helpers.py` had never been pushed to the public repository, so a
+  fresh clone could not import `find_voc_root` or `find_latest_run`. Now
+  committed with its 13 tests.
+
+**Does NOT yet show:**
+- Training is in progress; no run 3 accuracy or benchmark figures exist yet.
+  Every detection figure currently quoted in `README.md` and elsewhere still
+  derives from runs 1 and 2 (small 50.0%, 95% CI [40.0%, 60.0%], n = 92) and
+  remains the figure of record until run 3's benchmark completes.
+- The run was interrupted once and resumed from the Drive checkpoint at epoch
+  5. An interrupted run is not bit-identical to an uninterrupted one, because
+  dataloader shuffling state does not survive the restart. This does not bear
+  on the reproducibility claim, which concerns the *split*, not the training
+  trajectory. Runs 1 and 2 were likewise resumed multiple times.
+- Light/weather stratification not yet run. The categorization annotations
+  ship with FOD-A's original-format distribution, not the Pascal VOC mirror
+  used here; `notebooks/ASSIS_FOD_Run3_Reproducible.py` Steps 10–10c download
+  it, search for the CSV, and validate its counts against the paper before
+  any stratified result is produced.
+
+**Next:** run the FAA benchmark against run 3's weights, commit the output to
+`docs/benchmark_results/`, and propagate the corrected figures to `README.md`,
+`app/streamlit_app.py`, the two outreach PDFs, the expert-letter template, and
+the RFE cover letter in a single pass.

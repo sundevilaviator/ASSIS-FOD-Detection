@@ -92,7 +92,7 @@ sys.path.insert(0, str(REPO))
 from src.colab_helpers import find_voc_root
 
 ANNOT, IMAGES = find_voc_root(Path("/content/fod-a-raw"))
-!python {REPO}/src/voc_to_yolo.py --voc-dir {ANNOT} --list-classes-only
+!python {REPO}/src/voc_to_yolo.py --voc-dir {ANNOT} --list-classes-only --config {REPO}/configs/fod.yaml
 
 # %%
 import sys
@@ -106,8 +106,19 @@ YOLO_ROOT = Path("/content/fod-a-yolo")
 (YOLO_ROOT / "images").mkdir(parents=True, exist_ok=True)
 (YOLO_ROOT / "labels").mkdir(parents=True, exist_ok=True)
 
-!python {REPO}/src/voc_to_yolo.py --voc-dir {ANNOT} --out {YOLO_ROOT}/labels
-!cp {IMAGES}/*.jpg {YOLO_ROOT}/images/ 2>/dev/null
+!python {REPO}/src/voc_to_yolo.py --voc-dir {ANNOT} --out {YOLO_ROOT}/labels --config {REPO}/configs/fod.yaml
+
+# shutil, not `cp *.jpg`: a 34k-file glob overflows the shell argument list,
+# and the old `2>/dev/null` hid that failure until Step 6 reported an empty
+# dataset three cells later. Never suppress stderr on a step whose failure is
+# invisible downstream.
+import shutil
+n = 0
+for _p in IMAGES.iterdir():
+    if _p.suffix.lower() in ('.jpg', '.jpeg', '.png'):
+        shutil.copy2(_p, YOLO_ROOT / 'images' / _p.name)
+        n += 1
+print('copied', n, 'images')
 
 print("images:", len(list((YOLO_ROOT / 'images').glob('*.jpg'))))
 print("labels:", len(list((YOLO_ROOT / 'labels').glob('*.txt'))))
@@ -288,6 +299,7 @@ assert latest is not None, "no completed run"
     --metadata-csv {cat[0].path} \
     --out {REPO}/docs/benchmark_results
 
+# %%
 # ---- Step 11: save what matters back to Drive ------------------------------
 import shutil
 from pathlib import Path

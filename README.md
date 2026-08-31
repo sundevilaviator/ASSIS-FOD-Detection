@@ -17,7 +17,8 @@ Commercial FOD detection (QinetiQ Tarsier, Xsight FODetect, Stratech iFerret) is
 
 | Path | Purpose |
 |---|---|
-| `notebooks/ASSIS_FOD_Colab_Full.py` | **The complete pipeline, one file.** Cell-delimited (`# %%`) — paste into Colab or run as a plain script. Download → confirm real class names → VOC→YOLO conversion → small-object split → train → FAA benchmark (with environmental breakdown) → save. Has two explicit manual-confirmation checkpoints (see below) rather than guessing dataset internals. |
+| `notebooks/ASSIS_FOD_Run3_Reproducible.py` | **The current pipeline — use this one.** Cell-delimited (`# %%`). Adds what the earlier file lacks: a split whose membership is fingerprinted (SHA-256 over sorted contents, recorded in the manifest) so "same source, same seed" is verifiable rather than asserted; `--small-test-frac` to enlarge the small-object held-out set, which is what sets the confidence interval on the figure that bounds every claim here; checkpoint resume by modification time; and a metadata step that searches the FOD-A original-format distribution for the light/weather categorization rather than assuming the Kaggle mirror carries it. Every cell re-derives its own paths, so a recycled Colab VM cannot produce a NameError cascade. |
+| `notebooks/ASSIS_FOD_Colab_Full.py` | Earlier pipeline file, kept for the record. **Superseded** — it predates split fingerprinting and the enlarged small-object split, and two of its commands omit `--config`, so it fails against a repo checkout. Use the run 3 file above. |
 | `notebooks/ASSIS_FOD_Training_Colab.ipynb` | Same pipeline as a Colab-native notebook, for anyone who prefers `.ipynb` over a cell-delimited `.py`. |
 | `src/voc_to_yolo.py` | Converts FOD-A's native Pascal VOC XML annotations to YOLO format. Includes `--list-classes-only` to read the dataset's real class names directly rather than assuming them. |
 | `src/data_prep.py` | Downloads FOD-A, and re-splits a YOLO-format dataset by bounding-box size, producing a small-object-weighted training set and a held-out size-stratified test set. |
@@ -26,6 +27,7 @@ Commercial FOD detection (QinetiQ Tarsier, Xsight FODetect, Stratech iFerret) is
 | `src/benchmark_faa.py` | Scores a model's predictions against ground truth using FAA AC 150/5220-24 criteria: detection rate by object-size bucket, false-alarm rate (per-image proxy), localization error, and — if a FOD-A light/weather metadata CSV is supplied — a breakdown by lighting and weather condition. Produces `docs/benchmark_results/*.md`. |
 | `app/streamlit_app.py` | Local demo app: upload an image, run the trained model, view detections with FAA size-class labels and a mock operations "alert" panel (structured record: time, camera ID, size class, confidence). |
 | `configs/fod.yaml` | Class list, size-bucket thresholds, augmentation, and training hyperparameters in one place. |
+| `docs/benchmark_results/` | Benchmark output as produced by `src/benchmark_faa.py` — the actual `.md`/`.json` reports behind every detection figure quoted in this README. Committed so the numbers can be checked against their source rather than taken on trust. |
 | `docs/RESEARCH_LOG.md` | Dated log of what was run, on what data, with what result — kept in the format used across ASSIS project documentation to keep "done / in progress / planned" distinct. |
 | `docs/FAA_AC_150_5220-24_BENCHMARK.md` | Explains the benchmark methodology and its known limitations (see below). |
 | `docs/GAP_ANALYSIS_SUMMARY.md` | Condensed version of the competitive/gap analysis that scoped this module — verification status of its vendor claims is noted at the top of that file. |
@@ -53,7 +55,7 @@ This is an active research module, not a certified or deployed product. See `doc
 ## Quickstart
 
 ### Option A — the complete pipeline file (recommended)
-Open `notebooks/ASSIS_FOD_Colab_Full.py` in Colab (paste each `# %%` block into a cell) or run it as a plain script once dependencies are installed. Stop at both "CONFIRM BEFORE CONTINUING" checkpoints and check the printed dataset structure / class names / metadata filename against what the script assumes before letting it continue.
+Open `notebooks/ASSIS_FOD_Run3_Reproducible.py` in Colab (paste each `# %%` block into a cell) or run it as a plain script once dependencies are installed. Stop at both "CONFIRM BEFORE CONTINUING" checkpoints and check the printed dataset structure / class names / metadata filename against what the script assumes before letting it continue.
 
 ### Option B — step by step, locally
 ```bash
