@@ -127,10 +127,13 @@ def draw_detections(image: Image.Image, detections: list[dict]) -> Image.Image:
 # figures (52.2% / 47.8%) separately: they differ by 0.42 standard errors and
 # a single run's 95% interval is roughly +/-14 points.
 MEASURED_PERFORMANCE = (
-    # (size bucket, pooled detection rate, 95% CI or run range, n)
-    ("Large", "99.8-100%", "range across two runs", 525),
-    ("Medium", "98.6-99.5%", "range across two runs", 222),
-    ("Small", "50.0%", "95% CI 40.0-60.0%", 92),
+    # (size bucket, detection rate, uncertainty, ground-truth instances)
+    # Run 3 (2026-08-31): a reproducible split with a fingerprinted, enlarged
+    # small-object held-out set. NOT pooled with runs 1-2 (same 309 small
+    # source images, not independent samples).
+    ("Large", "99.6%", "single measurement", 525),
+    ("Medium", "99.1%", "single measurement", 222),
+    ("Small", "52.0%", "95% CI 43.3-60.7%", 123),
 )
 
 FAA_SMALL_OBJECT_THRESHOLD_NOTE = (
