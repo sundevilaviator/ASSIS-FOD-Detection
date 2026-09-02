@@ -106,6 +106,17 @@ LIMITATIONS (read before citing any number above):
    results therefore require training from the original-format
    distribution. Do not stratify a VOC-trained model against this CSV.
 
+6. If --sahi is set, inference runs as tiled/sliced predictions (SAHI) rather
+   than one full-image pass. Because FOD-A's own images are already only
+   300x300 (the same fact behind the 2026-08-31 inference-resolution
+   sweep's negative result), tiling them creates no new detail and is NOT
+   expected to change this benchmark's small-object number. SAHI's
+   plausible benefit is on higher-resolution real-world imagery where a
+   small object is a tiny fraction of a much larger frame — a case FOD-A's
+   own held-out split does not represent. A --sahi run against FOD-A tells
+   you whether that reasoning holds; it is not, by itself, evidence about
+   real deployment photos one way or the other.
+
 Bottom line: this script produces a consistent, reproducible way to track
 progress against the AC's structure over time. It does not, by itself,
 constitute a certified FAA compliance test.
@@ -251,6 +262,48 @@ def load_gt_labels(label_path: Path, img_w: int, img_h: int) -> list[dict]:
     return boxes
 
 
+def _predict_boxes_plain(model, img_path: Path, conf: float, imgsz: int | None) -> list[tuple[float, float, float, float]]:
+    """Standard single-pass inference — the existing, already-benchmarked path."""
+    _kw = {"imgsz": imgsz} if imgsz else {}
+    pred = model.predict(source=str(img_path), conf=conf, verbose=False, **_kw)[0]
+    return [tuple(v.item() for v in b) for b in pred.boxes.xyxy] if len(pred.boxes) else []
+
+
+def _predict_boxes_sahi(sahi_model, img_path: Path, slice_size: int, overlap: float) -> list[tuple[float, float, float, float]]:
+    """Sliced inference via SAHI: tile the image, run the same weights per
+    tile, merge tile-level detections back into full-image coordinates.
+
+    Why this exists: FOD-A's Pascal VOC mirror images are already only
+    300x300 (see docs/RESEARCH_LOG.md, 2026-08-31 session 3 — the
+    inference-resolution sweep found raising --imgsz does nothing because
+    there is no extra detail to recover from an already-small source).
+    Tiling a 300x300 source image does not manufacture pixels that were
+    never captured either, so this is NOT expected to move the FOD-A
+    benchmark number for the same reason. It exists for the case that sweep
+    did not test: real, higher-resolution deployment photos where a small
+    object occupies a tiny fraction of a large frame. Run this benchmark
+    against FOD-A's held-out split to see whether that prediction holds, and
+    treat any FOD-A-benchmark improvement (or lack of one) as informative
+    either way — this is an experiment, not an assumed win.
+    """
+    from sahi.predict import get_sliced_prediction
+
+    result = get_sliced_prediction(
+        str(img_path),
+        sahi_model,
+        slice_height=slice_size,
+        slice_width=slice_size,
+        overlap_height_ratio=overlap,
+        overlap_width_ratio=overlap,
+        verbose=0,
+    )
+    boxes = []
+    for obj in result.object_prediction_list:
+        b = obj.bbox
+        boxes.append((float(b.minx), float(b.miny), float(b.maxx), float(b.maxy)))
+    return boxes
+
+
 def run_benchmark(
     weights: Path,
     data_yaml: Path,
@@ -263,6 +316,9 @@ def run_benchmark(
     metadata_image_col: str | None = None,
     metadata_light_col: str | None = None,
     metadata_weather_col: str | None = None,
+    sahi: bool = False,
+    sahi_slice_size: int = 512,
+    sahi_overlap: float = 0.2,
 ) -> dict:
     try:
         from ultralytics import YOLO
@@ -296,6 +352,29 @@ def run_benchmark(
 
     model = YOLO(str(weights))
 
+    sahi_model = None
+    if sahi:
+        try:
+            from sahi import AutoDetectionModel
+        except ImportError as e:
+            raise SystemExit(
+                "Requires sahi: pip install sahi. --sahi was passed but the "
+                "package is not installed."
+            ) from e
+        import torch
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        sahi_model = AutoDetectionModel.from_pretrained(
+            model_type="ultralytics",
+            model_path=str(weights),
+            confidence_threshold=conf,
+            device=device,
+        )
+        print(
+            f"[sahi] Sliced inference enabled: slice={sahi_slice_size}x{sahi_slice_size}, "
+            f"overlap={sahi_overlap}, device={device}. Expected to matter most on images "
+            "larger than FOD-A's native 300x300 — see docstring on _predict_boxes_sahi."
+        )
+
     stats = {b: {"tp": 0, "fn": 0} for b in ("small", "medium", "large")}
     light_stats: dict[str, dict[str, int]] = {}
     weather_stats: dict[str, dict[str, int]] = {}
@@ -318,9 +397,10 @@ def run_benchmark(
         # imgsz is passed explicitly when set. Inference resolution materially
         # changes small-object recall, so a benchmark that does not state the
         # resolution it ran at cannot be compared against another one.
-        _kw = {"imgsz": imgsz} if imgsz else {}
-        pred = model.predict(source=str(img_path), conf=conf, verbose=False, **_kw)[0]
-        pred_boxes = [tuple(v.item() for v in b) for b in pred.boxes.xyxy] if len(pred.boxes) else []
+        if sahi_model is not None:
+            pred_boxes = _predict_boxes_sahi(sahi_model, img_path, sahi_slice_size, sahi_overlap)
+        else:
+            pred_boxes = _predict_boxes_plain(model, img_path, conf, imgsz)
 
         matched_pred = set()
         for gt in gt_boxes:
@@ -369,6 +449,9 @@ def run_benchmark(
         "iou_threshold": iou_thresh,
         "confidence_threshold": conf,
         "inference_imgsz": imgsz,  # None = Ultralytics default (640)
+        "sahi_sliced_inference": sahi,
+        "sahi_slice_size": sahi_slice_size if sahi else None,
+        "sahi_overlap": sahi_overlap if sahi else None,
         "n_images_evaluated": total_images,
         "results_by_size_bucket": results,
         "results_by_light_level": results_by_light,
@@ -480,6 +563,18 @@ def main() -> None:
     ap.add_argument("--metadata-image-col", default=None, help="Override auto-detected image/filename column name.")
     ap.add_argument("--metadata-light-col", default=None, help="Override auto-detected light-level column name.")
     ap.add_argument("--metadata-weather-col", default=None, help="Override auto-detected weather column name.")
+    ap.add_argument(
+        "--sahi", action="store_true",
+        help="Use SAHI sliced inference instead of a single full-image pass: tile the "
+             "image, run the same weights per tile, merge results back to full-image "
+             "coordinates. Requires: pip install sahi. NOT expected to change results on "
+             "FOD-A's own 300x300 images (see _predict_boxes_sahi docstring) — this flag "
+             "exists to test that prediction and to benchmark higher-resolution imagery "
+             "where it's more likely to matter. Mutually exclusive in effect with --imgsz "
+             "(imgsz is ignored when --sahi is set; SAHI controls its own tile size).",
+    )
+    ap.add_argument("--sahi-slice-size", type=int, default=512, help="Tile height/width in pixels for --sahi.")
+    ap.add_argument("--sahi-overlap", type=float, default=0.2, help="Tile overlap ratio for --sahi (0-1).")
     args = ap.parse_args()
 
     run_benchmark(
@@ -489,6 +584,9 @@ def main() -> None:
         metadata_image_col=args.metadata_image_col,
         metadata_light_col=args.metadata_light_col,
         metadata_weather_col=args.metadata_weather_col,
+        sahi=args.sahi,
+        sahi_slice_size=args.sahi_slice_size,
+        sahi_overlap=args.sahi_overlap,
     )
 
 
