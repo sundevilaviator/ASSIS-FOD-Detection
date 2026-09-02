@@ -760,3 +760,113 @@ resolution now is.
 are NOT committed** — they are three runs of the same weights differing only in
 one flag, and the table above records the result. The committed artifacts under
 `docs/benchmark_results/` remain the runs of record.
+
+---
+
+## 2026-09-01 — Anecdotal deployed-app failure: closed taxonomy forces a wrong
+## label on an out-of-distribution object
+
+**Not a benchmark measurement — a single manual test against the deployed
+Streamlit demo, recorded because it is a clean illustration of two limitations
+already named in this log, not because n=1 changes any reported rate.**
+
+Uploaded a professional aviation stock photo (shallow depth of field, an
+out-of-focus fighter jet filling the background) of a "48 FW – Golden Bolt"
+novelty/award bolt prop lying in the foreground. Run 3's weights returned one
+detection: class "Wrench," confidence 0.76, with the bounding box drawn over
+the blurred aircraft in the background — not over the bolt in the foreground.
+
+**Two compounding causes, not one bug:**
+
+1. **Closed five-class taxonomy with no reject option.** Run 3 is trained on
+   only Wrench, Hammer, Screwdriver, SodaCan, Wood (see the 2026-08-31 sweep
+   entry above). A bolt is not one of them — and notably, FOD-A itself *does*
+   have a Bolt class (3,300 objects), it is simply one of the classes this
+   config currently excludes. A closed-set classifier cannot output "unknown
+   object"; it is forced onto its closest known label regardless of fit. The
+   0.76 confidence reflects certainty in that forced choice, not correctness
+   of the label.
+2. **Severe domain shift from FOD-A's image style.** FOD-A training/eval
+   images are flat, uncalibrated, airfield-camera-style shots. This upload was
+   a staged studio-quality stock photo with heavy background bokeh. The
+   mislocalized box (on the blurred jet, not the sharp bolt) is consistent
+   with the model keying on shape/texture cues that correlated with "tool" in
+   training data, without the training distribution to anchor it to the
+   actually-salient object when the image looks nothing like FOD-A.
+
+For contrast: an earlier upload the same session — a handheld wrench, flat
+lighting, plain pavement, phone-camera framing much closer to FOD-A's own
+style — was detected correctly (class and box both right). The difference
+between the two results tracks distribution shift, not random noise.
+
+**Why this is worth recording rather than discarding:** it is a concrete,
+reproducible illustration of two gaps this log already documents in the
+aggregate (small/excluded-class coverage; no validation outside one dataset's
+image style) rather than a new finding, and it is a useful caution against
+over-trusting a single confident-looking detection in the demo — exactly the
+risk `app/streamlit_app.py`'s own measured-performance panel is there to
+guard against.
+
+**Not evidence of anything quantitative.** One image is feasibility evidence
+of a failure mode, not a rate, and is not added to any benchmark table.
+
+**What would actually address this, for the record:** (a) extending the
+training config to include Bolt and the other currently-excluded small-
+fastener classes already present in FOD-A (see 2026-08-31 sweep entry), which
+run 4 does not yet do but could be scoped to; (b) evaluating on imagery that
+matches the deployment's actual expected input style, not just FOD-A's own
+held-out split, before claiming any cross-domain robustness — currently
+undone and already listed as a limitation in the app itself.
+
+---
+
+## 2026-09-02 — SAHI sliced inference: negative result on FOD-A, as predicted
+
+**Done:** benchmarked run 3's weights against run 3's exact held-out split
+(fingerprints reproduced and verified byte-for-byte against the 2026-08-31
+entry before trusting anything below) under two conditions: a plain
+full-image pass, and SAHI sliced inference (512x512 tiles, 20% overlap).
+`src/benchmark_faa.py` gained a `--sahi` flag for this comparison; everything
+downstream of the prediction call (IoU matching, bucketing, the FAA-threshold
+report) is identical between the two runs, so they are directly comparable.
+
+| Condition | Small (n=123) | Medium (n=222) | Large (n=525) | FP/image | Mean loc. error |
+|---|---|---|---|---|---|
+| Plain | 64/123 = 52.0% | 220/222 = 99.1% | 523/525 = 99.6% | 0.0092 | 0.284% |
+| SAHI (512px, 20% overlap) | 63/123 = 51.2% | 220/222 = 99.1% | 523/525 = 99.6% | 0.0080 | 0.288% |
+
+**No real difference.** One fewer small-object detection under SAHI (63 vs.
+64) is noise at n=123, not a signal — medium and large are byte-identical
+between conditions. This is a negative result, in the same category as the
+2026-08-31 inference-resolution sweep, and it was the predicted outcome
+going in, stated explicitly in this repo before the run: FOD-A's Pascal VOC
+mirror images are already only 300x300, and tiling an already-small source
+image does not manufacture pixel detail that was never captured. SAHI had
+nothing to recover here.
+
+**This does not rule out SAHI in general — it rules it out for FOD-A's own
+benchmark specifically.** SAHI's plausible use case remains higher-resolution
+real-world deployment photos, where a small object is a tiny fraction of a
+much larger frame — a case this held-out split, by construction, does not
+represent. That remains untested. Do not read this entry as "SAHI doesn't
+work"; read it as "SAHI has nothing to add on a 300x300 source," which is a
+narrower and now-confirmed claim.
+
+**Converges with everything else pointing at run 4.** Three independent
+findings now trace to the same root cause (FOD-A's Pascal VOC mirror is a
+downsampled, unstratifiable 300x300 mirror of a 400x400 original): the
+inference-resolution sweep, the light/weather stratification block, and now
+this SAHI result. Retraining from `FullDatasetV.2.1-400x400` (run 4, written
+2026-08-31, not yet executed) remains the single next step most likely to
+move more than one of these at once.
+
+**Environment note:** this run required rebuilding `/content/fod-a-yolo` and
+reinstalling `ultralytics`/`sahi` from a fresh Colab VM — neither survives a
+VM recycle, only Google Drive artifacts (weights, split fingerprints) do.
+The rebuilt split's fingerprints matched the 2026-08-31 recorded ones
+exactly, confirming the rebuild reproduced run 3's actual split rather than
+a similar-looking new one.
+
+**Benchmark artifacts** written to
+`docs/benchmark_results/sahi_experiment/` (both JSON+MD reports) and to
+`/content/drive/MyDrive/ASSIS_FOD_sahi_experiment/` on Drive.
