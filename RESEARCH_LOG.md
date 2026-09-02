@@ -501,7 +501,7 @@ MKS pilot test and the light/weather metadata CSV as separately planned.
   limitation recorded on 2026-08-23.
 
 **Action required outside this repository:** the withdrawn claim appears in
-outreach and petition materials and must be corrected there before any of
+outreach and must be corrected there before any of
 them are sent.
 
 ---
