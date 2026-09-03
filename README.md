@@ -16,26 +16,28 @@ This module is scoped around a documented gap in publicly benchmarked FOD detect
 
 ## Status
 
-This is an active research module, not a certified or deployed product. See `RESEARCH_LOG.md` for the current, dated state. As of this commit:
+This is an active research module, not a certified or deployed product. See `docs/RESEARCH_LOG.md` for the current, dated state. As of this commit:
 
 * Repository scaffold, VOC→YOLO conversion, data pipeline, training/inference/benchmark scripts, and demo app
 * Every script's logic unit-tested against hand-computed values; the full pipeline (conversion → split → train → infer → benchmark, including the environmental-metadata breakdown) has been run end to end against synthetic data and confirmed to execute without error
 * **Split reproducibility defect found and fixed (2026-08-23)** — `find_labeled_images()` fed filesystem-ordered enumeration into a seeded shuffle, so `--seed 42` produced different splits on different machines. Found by comparing per-class test composition across two early runs; invisible in the split manifest, whose aggregate counts matched. Fixed by sorting before the shuffle, with five regression tests (`tests/test_split_reproducibility.py`). Splits built before that commit are not reproducible across machines and are superseded by the run below.
 * **Model trained and evaluated on the real FOD-A small-object split — run 3** (Colab A100, post-fix, reproducible split with recorded SHA-256 fingerprints). Results reported in FAA AC 150/5220-24 terms against real data — see `docs/benchmark_results/`. Detection by size bucket: large 99.6% (523/525), medium 99.1% (220/222), small 52.0% (64/123), 95% CI [43.3%, 60.7%]. The small-object result sits entirely below the Advisory Circular's referenced 90% threshold; that shortfall is the finding, and it is reported rather than tuned away.
-* **Two negative results, both logged rather than discarded:** an inference-resolution sweep and a SAHI sliced-inference experiment (`--sahi` flag in `src/benchmark_faa.py`) — neither improved small-object detection. See `RESEARCH_LOG.md` for full reasoning.
+* **Two negative results, both logged rather than discarded:** an inference-resolution sweep and a SAHI sliced-inference experiment (`--sahi` flag in `src/benchmark_faa.py`) — neither improved small-object detection. See `docs/RESEARCH_LOG.md` for full reasoning.
 * Several areas remain open (cross-site validation, additional environmental robustness, expanded object coverage) — tracked internally rather than itemized here.
 * **Camera/CCTV integration — not started, and not authorized.** This module trains and evaluates against the FOD-A dataset only. No camera survey, testing, or deployment work has been done or is assumed as a next step.
 
 A known limitation, stated plainly: FOD-A images do not carry real-world physical scale (no calibrated camera geometry), so "object size" here is a bounding-box-area proxy, not a measured centimeter size. The benchmark script documents this explicitly rather than reporting FAA-standard centimeter thresholds as if they were directly verified — closing that gap requires either a calibrated camera setup or a dataset with known object-to-pixel scale, which is flagged as follow-on work.
 
-A second known limitation: FOD-A's exact internal folder layout and its light/weather metadata CSV's column names were not independently verified against the live dataset while this repository was built (no network access to Kaggle in that environment). `notebooks/ASSIS_FOD_Colab_Full.py` has two explicit "CONFIRM BEFORE CONTINUING" checkpoints for exactly this reason — don't skip them on a first run.
+A second known limitation: FOD-A's exact internal folder layout and its light/weather metadata CSV's column names were not independently verified against the live dataset while this repository was built (no network access to Kaggle in that environment). `notebooks/ASSIS_FOD_Run3_Reproducible.py` has explicit "CONFIRM BEFORE CONTINUING" checkpoints for exactly this reason — don't skip them on a first run.
 
 A third known limitation: some real-world FOD categories (e.g. tire-fragment / rubber debris) are not covered by FOD-A's object classes, and this module does not currently address that gap.
 
 ## Quickstart
 
 Option A — the complete pipeline file (recommended)
-Open `notebooks/ASSIS_FOD_Run3_Reproducible.py` in Colab (paste each `# %%` block into a cell) or run it as a plain script once dependencies are installed. Stop at both "CONFIRM BEFORE CONTINUING" checkpoints and check the printed dataset structure / class names / metadata filename against what the script assumes before letting it continue.
+Open `notebooks/ASSIS_FOD_Run3_Reproducible.py` in Colab (paste each `# %%` block into a cell) or run it as a plain script once dependencies are installed. Stop at both "CONFIRM BEFORE CONTINUING" checkpoints and check the printed dataset structure / class names / metadata filename against what the script assumes before letting it continue. This is the run of record — its weights and benchmark are what `docs/benchmark_results/` and the figures above are drawn from.
+
+`notebooks/ASSIS_FOD_Run4_Original400.py` retrains from FOD-A's original-format (400x400) distribution instead of the Pascal VOC mirror, so the light/weather categorization CSV can be joined by filename within one archive instead of across two. Written but **not yet executed** — see `docs/RESEARCH_LOG.md` for why it's the next step.
 
 ```
 python -m venv .venv && source .venv/bin/activate
@@ -77,6 +79,10 @@ weights_url = "https://github.com/<owner>/<repo>/releases/download/<tag>/best.pt
 The app downloads the weights once on first run and caches them. A local `--weights` path, when supplied, always takes precedence over the URL.
 
 `packages.txt` pins the system libraries OpenCV — pulled in by `ultralytics` — needs at import time: `libgl1` and `libglib2.0-0t64`. Streamlit Community Cloud's current base image does not include either, and without this file model loading fails with `libGL.so.1: cannot open shared object file`. Note: `libglib2.0-0t64`, not `libglib2.0-0` — the platform's base image renamed this package (a Debian time_t transition), and the old name pulls an uninstallable `libffi7` on the current image, breaking the whole dependency install. This is confirmed working against the live deployment above.
+
+## Publications and external review
+
+A manuscript describing this work is being prepared for direct submission to the *International Journal of Aviation, Aeronautics, and Aerospace* (IJAAA, Embry-Riddle Aeronautical University). An earlier arXiv preprint submission (`submit/7943685`) was declined by arXiv's moderators — not on technical grounds, but under arXiv's policy of limiting preprints from submitters without an existing record of publication in conventional peer-reviewed journals (see [arXiv moderation policy](https://arxiv.org/help/moderation)). Every citation in the manuscript was independently verified against its resolved source before submission, consistent with the standard applied throughout this repository.
 
 ## Relationship to the ASSIS platform
 
