@@ -16,7 +16,7 @@ This module is scoped around a documented gap in publicly benchmarked FOD detect
 
 ## Status
 
-This is an active research module, not a certified or deployed product. See `docs/RESEARCH_LOG.md` for the current, dated state. As of this commit:
+This is an active research module, not a certified or deployed product. See `RESEARCH_LOG.md` for the current, dated state. As of this commit:
 
 * Repository scaffold, VOC→YOLO conversion, data pipeline, training/inference/benchmark scripts, and demo app
 * Every script's logic unit-tested against hand-computed values; the full pipeline (conversion → split → train → infer → benchmark, including the environmental-metadata breakdown) has been run end to end against synthetic data and confirmed to execute without error
