@@ -78,10 +78,6 @@ The app downloads the weights once on first run and caches them. A local `--weig
 
 `packages.txt` pins the system libraries OpenCV — pulled in by `ultralytics` — needs at import time: `libgl1` and `libglib2.0-0t64`. Streamlit Community Cloud's current base image does not include either, and without this file model loading fails with `libGL.so.1: cannot open shared object file`. Note: `libglib2.0-0t64`, not `libglib2.0-0` — the platform's base image renamed this package (a Debian time_t transition), and the old name pulls an uninstallable `libffi7` on the current image, breaking the whole dependency install. This is confirmed working against the live deployment above.
 
-## Publications and external review
-
-A manuscript describing this work is being prepared for direct submission to the *International Journal of Aviation, Aeronautics, and Aerospace* (IJAAA, Embry-Riddle Aeronautical University). An earlier arXiv preprint submission (`submit/7943685`) was declined by arXiv's moderators — not on technical grounds, but under arXiv's policy of limiting preprints from submitters without an existing record of publication in conventional peer-reviewed journals (see [arXiv moderation policy](https://arxiv.org/help/moderation)). Every citation in the manuscript was independently verified against its resolved source before submission, consistent with the standard applied throughout this repository.
-
 ## Relationship to the ASSIS platform
 
 This module produces the same structured output format described in the ASSIS Technical Report §5.1 (time, location/camera ID, classification, confidence) so it can plug into the same reporting/SMS-integration layer as the PPE, badge-misuse, and fall-detection modules, rather than existing as a standalone tool.
