@@ -973,10 +973,28 @@ currently produce. **Do not cite "the model performs better in the dark"
 as a finding until that cross-tabulation is done** — recorded here as the
 immediate next step for this specific result, not claimed.
 
-**Split fingerprints:** not yet transcribed into this entry — pending Step
-7's printed output being pasted in. Should be added here before this run is
-cited anywhere, per the same discipline as run 3.
+**Split fingerprints** (SHA-256 over sorted membership, from
+`split_manifest.json`):
+
+```
+train        c895a6537dfddb39e526c818f070504c478a6d889b6a45d1d39c17290b3232da
+test         a08ef0b577488cc3f93b7df0f86f0431bb1f009977a216a985c17c8192d84c5c
+test_large   f673a26e46a8e609f1c5491de52dc5b340ff2d814b94ed90993b8f31a31b41ac
+test_medium  de41936ebf540e9a9a86cd1c2a3ebd99807b05945e42b1a7ced902dc20c7c0f0
+test_small   79a9e094e1b4fe07921f875594e02e9d9e72bd763befa126aa54883ffed86ec5
+```
+
+Confirmed distinct from run 3's recorded fingerprints (`train
+f39b2c6315530d27f1c180ac1a712b94900672d449aebec0de5e441a6db8d484`, `test
+ce1efeeb3899ebe5111bf7092cef4115db19aa0323b0f5433d7f29bf90f78e7f`, `test_small
+476227dd9dec9d26bf9d2a529754ac6bce2c49fd802cf4f1328e7cf835aab321`) — positive
+evidence run 4 built its own independent split from the original-format
+source, not a coincidental reuse of run 3's VOC-mirror split.
 
 **Benchmark artifacts:** `docs/benchmark_results/benchmark_20260903T194949Z.*`
 (plain) and `docs/benchmark_results/benchmark_20260903T195007Z.*` (with
-metadata) — pending upload to the repo alongside this entry.
+metadata, post-fix) — committed alongside this entry. The earlier
+`benchmark_20260903T185941Z.*` / `T190001Z.*` pair from before the
+metadata-join fix is not committed; it reflects the same detection numbers
+but a `null` (broken) stratified breakdown, and would only be confusing
+alongside the corrected pair.
