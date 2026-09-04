@@ -998,3 +998,93 @@ metadata, post-fix) — committed alongside this entry. The earlier
 metadata-join fix is not committed; it reflects the same detection numbers
 but a `null` (broken) stratified breakdown, and would only be confusing
 alongside the corrected pair.
+
+---
+
+## 2026-09-04 — Streamlit app rebuilt on real data; Run 5 prepared (class scope extended to small fasteners)
+
+**Done — Streamlit app:**
+- Rebuilt `app/streamlit_app.py` as a multi-page app (Dashboard, Image
+  Detection, Benchmark Performance, Environmental Conditions, Methodology,
+  Limitations & Roadmap) per the project's UX/UI specification, implementing
+  only the pages the repository can actually support with real data.
+- Removed the previous hard-coded `MEASURED_PERFORMANCE` tuple (stale run-3
+  numbers no longer matching any committed benchmark file) and added
+  `src/benchmark_report.py`, a new pure, tested module that reads the
+  committed `docs/benchmark_results/*.json` reports directly. Every number
+  the app shows is sourced from those files; a `metadata_accounting()`
+  cross-check surfaces unmatched light/weather-metadata counts explicitly
+  (870/870 matched on the current run 4 report) rather than hiding them.
+- Verified with `streamlit.testing.v1.AppTest` against all six pages (no
+  exceptions) and spot-checked every displayed figure against the source
+  JSON byte-for-byte.
+- Removed a specific named-airport (CHS) reference from the Limitations
+  page at the user's request — the no-CCTV-authorization statement now
+  reads as a general policy rather than naming one airport, since naming
+  it there could misleadingly imply it is a specific candidate under
+  consideration.
+- Real-world spot check: the user tested the live app with an uploaded
+  photo of loose hardware (nuts, bolts, washers, rocks). The model
+  classified a bolt as "SodaCan" (0.81 confidence). This is not a code
+  defect — the model's trained class list (5 classes, see below) has no
+  fastener category, so an out-of-scope object is necessarily forced into
+  the nearest of the 5 it does know. This single-image observation is
+  recorded here as the concrete motivation for the class-scope extension
+  below, not as a validated accuracy finding.
+
+**Done — Run 5 preparation (not yet executed):**
+- Extended `configs/fod.yaml`'s `classes:` list from 5 to 12: added Bolt,
+  Washer, Nut, BoltWasher, BoltNutSet, Screw, and Nail — FOD-A's
+  small-fastener categories, which are the actual small-object gap this
+  module targets (see docs/GAP_ANALYSIS_SUMMARY.md), and which directly
+  address the SodaCan misclassification above.
+- **Provenance caveat, stated explicitly in `configs/fod.yaml` itself:**
+  these 7 class names were confirmed present via
+  `src/voc_to_yolo.py --list-classes-only` on 2026-08-19, but that scan was
+  run against the Pascal VOC MIRROR distribution
+  (`FODPascalVOCFormat-V.2.1/VOC2007/`), not the ORIGINAL-format 400x400
+  distribution Run 5 will actually train on. The two distributions are
+  known to differ (the mirror dropped 70 images and renumbered the rest —
+  see the 2026-08-31 findings above), so the class vocabulary is NOT
+  assumed to carry over unchecked. `notebooks/ASSIS_FOD_Run5_Fasteners.py`
+  Step 4b re-runs the class scan directly against the original-format
+  distribution before conversion proceeds, and the notebook explicitly
+  instructs stopping if any of the 7 new classes comes back with a zero
+  count there.
+- Added `convert_original_format_distribution()` to `src/voc_to_yolo.py` —
+  a real, tested replacement for the ad hoc conversion cell that was
+  pasted directly into the live Colab session during run 4 and never
+  became part of the committed, tested source tree (a gap explicitly
+  flagged after run 4). It writes both images and collision-safe-named
+  labels (`{object_folder}__{filename_stem}`, matching
+  `benchmark_faa.py`'s existing convention), and is exercised by a new
+  regression test reproducing the exact real defect class this exists to
+  prevent: two different object folders (`Bolt1/`, `Nut3/`) both containing
+  a `frame_000000` file, asserting both survive conversion under distinct
+  names rather than one silently overwriting the other. A second new test
+  covers an in-scope object with no matching image file, and an
+  out-of-scope object being counted rather than silently dropped.
+- Added a CLI mode, `--original-format-root`, to `src/voc_to_yolo.py`
+  alongside the existing `--voc-dir` mode, so the new function is usable
+  from the notebook the same way the existing flat-VOC conversion is.
+- Wrote `notebooks/ASSIS_FOD_Run5_Fasteners.py`, following run 4's
+  structure (same split parameters — seed 42, test_frac 0.15,
+  small_test_frac 0.40 — held constant so the split METHOD doesn't change,
+  only the class scope) with the new Step 4b verification and Step 5b
+  conversion call added, plus a Step 1b that fails fast if the repository's
+  `configs/fod.yaml` on GitHub doesn't yet have the 12-class list.
+- Test suite: 77 passed (10 for `benchmark_report.py`, 2 new for
+  `voc_to_yolo.py`'s new function; unchanged tests for `convert_directory`,
+  `parse_metadata_csv`, and everything else still pass).
+
+**Not yet done / explicitly not claimed:**
+- Run 5 has NOT been executed. No training has happened, no benchmark
+  numbers exist for the 12-class model, and none should be assumed.
+- Run 5's numbers, once they exist, will NOT be directly comparable to run
+  4's: run 4 was scored over 5 classes, run 5 over 12, with a different
+  underlying labeled-image set and therefore a different split. State this
+  wherever a run 5 number is eventually reported.
+- The Nail class's real object count in this dataset has not been tallied
+  anywhere in this log (only the other 6 fastener classes' counts were,
+  in the 2026-08-31 entries above) — Step 4b of the run 5 notebook will
+  report the real number before training starts; it is not guessed here.
