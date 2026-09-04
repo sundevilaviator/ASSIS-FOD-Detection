@@ -3,28 +3,49 @@
 # training hyperparameters, so the training script, benchmark script, and
 # Streamlit app all agree on the same definitions.
 
-# Classes used for this training run. FOD-A's full label set is larger than
-# this; this file lists a NARROW starting subset deliberately (same "start
-# narrow, then extend" principle used for the PPE module's original 3-class
-# start), so the pipeline is validated end-to-end on large/high-contrast
-# objects before pushing into the harder small-object classes that are the
-# actual research target. Do not read this as the final scope.
+# Classes used for this training run. Runs 1-4 used only the first 5 below
+# (large/high-contrast objects, deliberately, to validate the pipeline
+# end-to-end before tackling harder small objects). Run 5 (2026-09-04)
+# extends this to FOD-A's small-fastener classes, which are the actual
+# small-object gap this module targets — see docs/GAP_ANALYSIS_SUMMARY.md.
+#
+# IMPORTANT PROVENANCE NOTE: the fastener names below (Bolt, Washer, Nut,
+# BoltWasher, BoltNutSet, Screw, Nail) were confirmed present via
+# src/voc_to_yolo.py --list-classes-only against the Pascal VOC MIRROR
+# distribution only (docs/RESEARCH_LOG.md, 2026-08-19: 33,793 XML files
+# scanned, 31 distinct class names found). Run 5 actually trains on the
+# separate ORIGINAL-FORMAT 400x400 distribution (see the 2026-08-31 findings
+# in RESEARCH_LOG — the two distributions are NOT filename-compatible and
+# the mirror is known to have dropped 70 images versus the original). The
+# two almost certainly share the same underlying label vocabulary (same
+# source dataset, repackaged), but that has NOT yet been independently
+# re-confirmed against the original-format distribution's own XML files —
+# Run 5's notebook re-runs the class scan against the actual training
+# source before locking in this list, per this project's "verify, don't
+# assume a check on one dataset transfers to another" rule.
 classes:
   - Wrench
   - Hammer
   - Screwdriver
   - SodaCan
   - Wood
+  - Bolt          # 3,300 objects in the confirmed class scan
+  - Washer        # 2,139 objects
+  - Nut           # 1,303 objects
+  - BoltWasher    # 1,017 objects
+  - BoltNutSet    # 514 objects
+  - Screw         # 157 objects
+  - Nail          # present in the confirmed class scan; object count not
+                  # yet tallied (the earlier count only covered the other
+                  # fastener classes) — Run 5's own dataset-layout step
+                  # will report the real number before training starts.
 
-# Planned Phase 2b extension: FOD-A's small-fastener classes (nuts, bolts,
-# washers, screws, and similar) are the actual small-object gap this module
-# targets — see docs/GAP_ANALYSIS_SUMMARY.md. Their EXACT label spelling in
-# the dataset has not been confirmed in this session (verify against the
-# downloaded dataset's own class list before enabling), so they are
-# deliberately NOT included in `classes:` above yet. Re-run
-# src/voc_to_yolo.py with --list-classes-only (or inspect a few raw XML
-# files directly) to get the confirmed exact names, add them here, and
-# re-run the full pipeline — do not guess-add names to this list.
+# FOD-A's full label set is larger still (Pliers, Wire, PlasticPart,
+# LuggageTag, Cutter, Label, Battery, MetalPart, PaintChip, ClampPart,
+# LuggagePart, Rock, FuelCap, AdjustableClamp, Pen, AdjustableWrench,
+# MetalSheet, Hose, Tape, and others — see the 2026-08-31 scan in
+# docs/RESEARCH_LOG.md for the full list with counts). Not included here;
+# add further classes the same way — confirm the count first, then extend.
 
 # Bounding-box area, as a percent of total image area, used to bucket
 # detections into FAA-AC-style size classes for reporting. This is a PIXEL-AREA
