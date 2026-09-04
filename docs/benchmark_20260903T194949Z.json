@@ -1,0 +1,46 @@
+{
+  "run_timestamp_utc": "2026-09-03T19:49:49.348465+00:00",
+  "weights": "/content/runs/detect/run4-orig400/weights/best.pt",
+  "data": "/content/fod-a-split-run4/data.yaml",
+  "iou_threshold": 0.5,
+  "confidence_threshold": 0.35,
+  "inference_imgsz": null,
+  "sahi_sliced_inference": false,
+  "sahi_slice_size": null,
+  "sahi_overlap": null,
+  "n_images_evaluated": 870,
+  "results_by_size_bucket": {
+    "small": {
+      "tp": 64,
+      "fn": 59,
+      "n_ground_truth": 123,
+      "detection_rate": 0.5203252032520326
+    },
+    "medium": {
+      "tp": 221,
+      "fn": 1,
+      "n_ground_truth": 222,
+      "detection_rate": 0.9954954954954955
+    },
+    "large": {
+      "tp": 524,
+      "fn": 1,
+      "n_ground_truth": 525,
+      "detection_rate": 0.9980952380952381
+    }
+  },
+  "results_by_light_level": null,
+  "results_by_weather": null,
+  "metadata_source": null,
+  "metadata_warnings": [],
+  "false_positives_per_image": 0.006896551724137931,
+  "mean_localization_error_pct_frame_diagonal": 0.2737224907216727,
+  "faa_reference_thresholds": {
+    "min_detection_rate_small_object": 0.9,
+    "max_false_alarms_per_day_visual": 1,
+    "max_false_alarms_per_day_non_visual": 3,
+    "max_location_error_m": 5.0,
+    "multi_object_min_separation_m": 3.0
+  },
+  "small_object_meets_faa_90pct_threshold": false
+}
