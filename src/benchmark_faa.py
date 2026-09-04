@@ -199,19 +199,45 @@ def parse_metadata_csv(
         )
         return {}, warnings
 
+    # FOD-A's original-format categorization CSV (confirmed 2026-09-03, on the
+    # real file) writes its File column as OBJECT_FOLDER\frame\FILENAME.PNG,
+    # using Windows-style backslashes -- e.g. "Battery1\frame\frame_000000.PNG".
+    # pathlib does NOT split on backslash under Linux/Colab, so a plain
+    # Path(raw_name).stem here previously left the backslashes embedded in
+    # the "stem" (producing a garbage key that could never match a real
+    # image), and separately dropped which per-object folder the frame came
+    # from -- both the VOC mirror AND src/voc_to_yolo.py-based conversions of
+    # this per-object-folder distribution reuse "frame_000000", "frame_000001"
+    # ... independently inside every object folder, so the object folder is
+    # not optional context, it's required to disambiguate the row at all.
+    #
+    # Any conversion script that reads this original-format distribution
+    # (see notebooks/ASSIS_FOD_Run4_Original400.py) must therefore name its
+    # output images/labels "{object_folder}__{filename_stem}" -- exactly the
+    # key built below -- or this join silently produces zero matches despite
+    # the CSV parsing without error.
+    LIGHT_CODE_LABELS = {"0": "bright", "1": "dim", "2": "dark"}
+    WEATHER_CODE_LABELS = {"0": "dry", "1": "wet"}
+
     metadata: dict[str, dict[str, str]] = {}
     for row in reader:
         raw_name = row.get(resolved_image_col, "")
         if not raw_name:
             continue
-        stem = Path(raw_name.strip()).stem
+        parts = raw_name.strip().replace("\\", "/").split("/")
+        obj_folder = parts[0] if len(parts) > 1 else None
+        filename_stem = Path(parts[-1]).stem
+        key = f"{obj_folder}__{filename_stem}" if obj_folder else filename_stem
+
         entry = {}
         if resolved_light_col and row.get(resolved_light_col):
-            entry["light"] = row[resolved_light_col].strip()
+            raw_light = row[resolved_light_col].strip()
+            entry["light"] = LIGHT_CODE_LABELS.get(raw_light, raw_light)
         if resolved_weather_col and row.get(resolved_weather_col):
-            entry["weather"] = row[resolved_weather_col].strip()
+            raw_weather = row[resolved_weather_col].strip()
+            entry["weather"] = WEATHER_CODE_LABELS.get(raw_weather, raw_weather)
         if entry:
-            metadata[stem] = entry
+            metadata[key] = entry
 
     if not metadata:
         warnings.append("Metadata CSV parsed but produced zero usable rows — check the file contents.")
