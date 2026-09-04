@@ -99,6 +99,33 @@ def test_parse_metadata_csv_partial_light_only_still_works():
     assert metadata["img001"] == {"light": "bright"}
 
 
+def test_parse_metadata_csv_handles_windows_backslash_object_folder_paths():
+    """Regression test for a real bug (found 2026-09-03, run 4): FOD-A's
+    original-format categorization CSV writes its File column as
+    OBJECT_FOLDER\\frame\\FILENAME.PNG using Windows-style backslashes.
+    pathlib does not split on backslash under Linux/Colab, so a plain
+    Path(raw_name).stem left the backslashes embedded in the "stem" -- a key
+    that could never match a real image -- and separately dropped which
+    per-object folder a frame came from. That object folder is required, not
+    optional context: every object folder in this distribution reuses
+    frame_000000, frame_000001... independently, so two different objects'
+    rows can carry the identical bare filename. This asserts the exact real
+    row shape confirmed against the live dataset, and that numeric condition
+    codes are translated to the documented labels (0=bright/dry,
+    1=dim/wet, 2=dark), not left as raw digits."""
+    csv_text = (
+        "File,Weather,Light\n"
+        "Battery1\\frame\\frame_000000.PNG,1,1\n"
+        "cutter2\\frame\\frame_000094.PNG,0,0\n"
+    )
+    metadata, warnings = parse_metadata_csv(csv_text)
+    assert warnings == []
+    assert metadata["Battery1__frame_000000"] == {"light": "dim", "weather": "wet"}
+    assert metadata["cutter2__frame_000094"] == {"light": "bright", "weather": "dry"}
+    # No literal backslashes should ever survive into a key.
+    assert not any("\\" in k for k in metadata)
+
+
 def test_resolve_labels_dir_matches_data_prep_output_layout():
     """Regression test for a real bug: an earlier version went up two parent
     levels (landing on the dataset root) instead of one (landing on the
