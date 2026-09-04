@@ -870,3 +870,113 @@ a similar-looking new one.
 **Benchmark artifacts** written to
 `docs/benchmark_results/sahi_experiment/` (both JSON+MD reports) and to
 `/content/drive/MyDrive/ASSIS_FOD_sahi_experiment/` on Drive.
+
+---
+
+## 2026-09-03 — Run 4 executed: original-format retrain, and the light/weather
+## stratification actually produced (first time, after fixing a real bug)
+
+**Done.** `notebooks/ASSIS_FOD_Run4_Original400.py` (written 2026-08-31) was
+run for the first time, on Colab Pro (T4/L4), against the original-format
+FOD-A distribution (`FullDatasetV.2.1-400x400`, 8.9 GB, gdown file id
+`1lLBJXXaQCWaFa-1MeLAANPpSwMhCJqGh`) rather than the Pascal VOC mirror runs
+1-3 used.
+
+**Real layout, confirmed by looking, not assumed.** The original-format
+distribution is organised per object type (`Battery1/`, `cutter2/`,
+`ClampPart2/`, ...), each with its own `Annotations/*.xml` (VOC format,
+image size read from the XML itself) + `frame/*.PNG` pair — not the flat
+`Annotations/`+`JPEGImages/` pair the VOC mirror used. `src/voc_to_yolo.py`'s
+`--voc-dir` flag was built for the flat layout, so a new conversion step was
+written (Step 5b, not present in the 2026-08-31 draft) to walk each
+per-object folder and convert it. **Collision risk found and handled, not
+assumed away:** every object folder reuses `frame_000000`, `frame_000001`...
+independently, so converting into one flat output directory keyed only by
+frame number would silently overwrite files across different object types.
+Every converted image/label is instead named `{object_folder}__{frame_stem}`
+(e.g. `cutter2__frame_000094`), with an assertion that raises loudly on any
+collision rather than allowing a silent overwrite. Verified against
+synthetic data shaped exactly like the real layout before running it against
+the real 33,863-file dataset.
+
+**Training.** YOLOv8n, 100 epochs, the same 5-class scope as run 3 (Wrench,
+Hammer, Screwdriver, SodaCan, Wood), imgsz 640, seed 42. Completed in 0.811
+hours on an L4. Per-class validation: Wrench mAP50 0.998 / mAP50-95 0.801,
+Hammer 0.998/0.986, Screwdriver 0.998/0.984, SodaCan 0.998/0.991, Wood
+0.995/[email protected] — consistent with run 3's per-class shape.
+
+**FAA-bucket benchmark:** small 52.0% (64/123), medium 99.5% (221/222),
+large 99.8% (524/525). This is within one detection of run 3's published
+figures (523/525 large, 220/222 medium, 64/123 small identical) despite a
+different image source (400x400 original vs. 300x300 mirror) and an
+independently-rebuilt split. Read together with the 2026-08-31
+inference-resolution sweep and the 2026-09-02 SAHI result, this is a fourth
+independent line of evidence that the small-object ceiling is a real
+detection-quality limit, not an artifact of the VOC mirror's downsampling —
+moving to a higher-resolution source did not move this number.
+
+**A real bug found and fixed: the metadata join silently matched nothing on
+the first attempt.** The stratified benchmark call reported
+`"[metadata] Loaded light/weather labels for 33863 images"` (the CSV parsed
+fine) but returned `results_by_light_level: null` and
+`results_by_weather: null` — the join to actual test images was silently
+producing zero matches. Root cause, confirmed against the live CSV: its
+`File` column uses Windows-style backslash paths
+(`Battery1\frame\frame_000000.PNG`), which `pathlib` does not split on
+under Linux/Colab — the old code's `Path(raw_name).stem` left the
+backslashes embedded in the lookup key instead of extracting a clean
+filename, and separately discarded which object folder a frame came from,
+even though that folder is required to disambiguate the row (see the
+collision note above — the same `frame_000094` name exists under many
+different object folders with different weather/light values). Fixed in
+`src/benchmark_faa.py`'s `parse_metadata_csv`: split on both `/` and `\`,
+and key metadata by `{object_folder}__{filename_stem}` — exactly the naming
+scheme Step 5b's conversion uses for its output images, so the two now
+line up. Also translated the CSV's raw numeric condition codes (0/1/2) to
+the documented labels (bright/dim/dark, dry/wet) instead of leaving them as
+digits in the report. Regression test added
+(`test_parse_metadata_csv_handles_windows_backslash_object_folder_paths`)
+pinning the real row shape. All 70 tests pass.
+
+**After the fix, the join matched 100% of the test set** (489+286+95 = 870
+for light, 705+165 = 870 for weather — both equal to `n_images_evaluated`
+exactly, versus zero before). Stratified result:
+
+| Light level | Detection rate | n |
+|---|---|---|
+| Bright | 87.5% (428/489) | 489 |
+| Dim | 100% (286/286) | 286 |
+| Dark | 100% (95/95) | 95 |
+
+| Weather | Detection rate | n |
+|---|---|---|
+| Dry | 91.3% (644/705) | 705 |
+| Wet | 100% (165/165) | 165 |
+
+This is, as far as this project has found, the first FOD detection system —
+commercial or research — to report performance broken out by lighting and
+weather condition in the terms AC 150/5220-24 section 3.2.b(6)/(6)(c)
+actually asks for (see `docs/GAP_ANALYSIS_SUMMARY.md`'s archived analysis
+for why no reviewed vendor does this).
+
+**Open question, stated rather than resolved either way:** detection is
+*lower* in bright light than in dim or dark, which is the opposite of a
+naive expectation. Two explanations are both plausible and this benchmark
+cannot yet distinguish them: (a) a real effect — glare/overexposure hurting
+detection more than low light does, or (b) a size-distribution confound —
+if the dim/dark buckets happen to be dominated by medium/large objects
+(already ~99%+ regardless of lighting) and contain few of the hard small
+objects, 100% would follow from bucket composition alone, not from the
+model handling darkness well. Distinguishing these requires a joint
+size-bucket x light-level breakdown, which `src/benchmark_faa.py` does not
+currently produce. **Do not cite "the model performs better in the dark"
+as a finding until that cross-tabulation is done** — recorded here as the
+immediate next step for this specific result, not claimed.
+
+**Split fingerprints:** not yet transcribed into this entry — pending Step
+7's printed output being pasted in. Should be added here before this run is
+cited anywhere, per the same discipline as run 3.
+
+**Benchmark artifacts:** `docs/benchmark_results/benchmark_20260903T194949Z.*`
+(plain) and `docs/benchmark_results/benchmark_20260903T195007Z.*` (with
+metadata) — pending upload to the repo alongside this entry.
