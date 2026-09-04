@@ -34,9 +34,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from voc_to_yolo import convert_directory, list_all_classes, parse_voc_xml, voc_box_to_yolo_line  # noqa: E402
+from voc_to_yolo import (  # noqa: E402
+    convert_directory,
+    convert_original_format_distribution,
+    list_all_classes,
+    parse_voc_xml,
+    voc_box_to_yolo_line,
+)
 
 CLASS_NAMES = ["Wrench", "Hammer", "Screwdriver", "SodaCan", "Wood"]
+FASTENER_CLASS_NAMES = ["Bolt", "Nut", "Washer", "BoltWasher", "BoltNutSet", "Screw", "Nail"]
 
 VALID_XML = """<annotation>
   <folder>fod-a</folder>
@@ -172,3 +179,97 @@ def test_list_all_classes_discovers_real_names_without_a_hardcoded_list(tmp_path
     assert counts["Wrench"] == 1
     assert counts["SodaCan"] == 1
     assert counts["NotAFODClass"] == 1  # discovered even though it's not in any config
+
+
+def _fastener_xml(class_name: str, w: int = 400, h: int = 400) -> str:
+    """A minimal single-object VOC XML for the per-object-folder distribution
+    tests below — dimensions match the real dataset's 400x400 format."""
+    return f"""<annotation>
+  <size><width>{w}</width><height>{h}</height><depth>3</depth></size>
+  <object>
+    <name>{class_name}</name>
+    <bndbox><xmin>10</xmin><ymin>10</ymin><xmax>50</xmax><ymax>50</ymax></bndbox>
+  </object>
+</annotation>
+"""
+
+
+def test_convert_original_format_distribution_handles_cross_folder_filename_collision(tmp_path: Path):
+    """Regression test for the real defect this function exists to avoid
+    (found 2026-09-03, run 4): FOD-A's per-object-folder distribution
+    restarts frame numbering inside every object folder, so
+    "Bolt1/frame/frame_000000.PNG" and "Nut3/frame/frame_000000.PNG" are
+    different images that would collide under a filename-stem-only naming
+    scheme. Both must survive conversion with distinct, correctly-prefixed
+    output names."""
+    root = tmp_path / "FullDatasetV.2.1-400x400"
+
+    bolt_dir = root / "Bolt1"
+    (bolt_dir / "Annotations").mkdir(parents=True)
+    (bolt_dir / "frame").mkdir(parents=True)
+    (bolt_dir / "Annotations" / "frame_000000.xml").write_text(_fastener_xml("Bolt"))
+    (bolt_dir / "frame" / "frame_000000.PNG").write_bytes(b"BOLT-IMAGE-BYTES")
+
+    nut_dir = root / "Nut3"
+    (nut_dir / "Annotations").mkdir(parents=True)
+    (nut_dir / "frame").mkdir(parents=True)
+    (nut_dir / "Annotations" / "frame_000000.xml").write_text(_fastener_xml("Nut"))
+    (nut_dir / "frame" / "frame_000000.PNG").write_bytes(b"NUT-IMAGE-BYTES")
+
+    # A non-object utility folder (no Annotations/ subdir) must be ignored,
+    # not crash the walk.
+    (root / "All_Dataset_Utility_Files").mkdir(parents=True)
+    (root / "All_Dataset_Utility_Files" / "FOD_categorization_annotations.csv").write_text("File,Weather,Light\n")
+
+    out_images = tmp_path / "out" / "images"
+    out_labels = tmp_path / "out" / "labels"
+
+    summary = convert_original_format_distribution(root, out_images, out_labels, FASTENER_CLASS_NAMES)
+
+    assert summary.n_xml_files == 2
+    assert summary.n_converted == 2
+    assert summary.n_skipped_malformed_xml == 0
+    assert summary.n_objects_written == 2
+
+    # Distinct, collision-safe names — neither overwrote the other.
+    assert (out_labels / "Bolt1__frame_000000.txt").exists()
+    assert (out_labels / "Nut3__frame_000000.txt").exists()
+    assert (out_images / "Bolt1__frame_000000.PNG").read_bytes() == b"BOLT-IMAGE-BYTES"
+    assert (out_images / "Nut3__frame_000000.PNG").read_bytes() == b"NUT-IMAGE-BYTES"
+
+    bolt_line = (out_labels / "Bolt1__frame_000000.txt").read_text().strip().split()
+    assert bolt_line[0] == str(FASTENER_CLASS_NAMES.index("Bolt"))
+    nut_line = (out_labels / "Nut3__frame_000000.txt").read_text().strip().split()
+    assert nut_line[0] == str(FASTENER_CLASS_NAMES.index("Nut"))
+
+
+def test_convert_original_format_distribution_skips_unknown_class_and_missing_image(tmp_path: Path):
+    root = tmp_path / "FullDatasetV.2.1-400x400"
+
+    # In-scope object, but no matching image file in frame/ — must be
+    # skipped and reported, not crash.
+    missing_img_dir = root / "Washer2"
+    (missing_img_dir / "Annotations").mkdir(parents=True)
+    (missing_img_dir / "frame").mkdir(parents=True)
+    (missing_img_dir / "Annotations" / "frame_000005.xml").write_text(_fastener_xml("Washer"))
+    # (no corresponding frame/frame_000005.* written)
+
+    # Object present but not in the configured class list — must be
+    # counted, not silently dropped, and must not produce an output pair.
+    out_of_scope_dir = root / "Rock1"
+    (out_of_scope_dir / "Annotations").mkdir(parents=True)
+    (out_of_scope_dir / "frame").mkdir(parents=True)
+    (out_of_scope_dir / "Annotations" / "frame_000000.xml").write_text(_fastener_xml("Rock"))
+    (out_of_scope_dir / "frame" / "frame_000000.PNG").write_bytes(b"ROCK-IMAGE-BYTES")
+
+    out_images = tmp_path / "out" / "images"
+    out_labels = tmp_path / "out" / "labels"
+
+    summary = convert_original_format_distribution(root, out_images, out_labels, FASTENER_CLASS_NAMES)
+
+    assert summary.n_converted == 0
+    assert summary.n_skipped_missing_image == 1
+    assert summary.n_objects_skipped_unknown_class == 1
+    assert summary.unknown_class_counts["Rock"] == 1
+    assert not (out_images / "Rock1__frame_000000.PNG").exists()
+    assert not (out_labels / "Washer2__frame_000005.txt").exists()
