@@ -37,7 +37,7 @@ A third known limitation: some real-world FOD categories (e.g. tire-fragment / r
 Option A — the complete pipeline file (recommended)
 Open `notebooks/ASSIS_FOD_Run3_Reproducible.py` in Colab (paste each `# %%` block into a cell) or run it as a plain script once dependencies are installed. Stop at both "CONFIRM BEFORE CONTINUING" checkpoints and check the printed dataset structure / class names / metadata filename against what the script assumes before letting it continue. This is the run of record — its weights and benchmark are what `docs/benchmark_results/` and the figures above are drawn from.
 
-`notebooks/ASSIS_FOD_Run4_Original400.py` retrains from FOD-A's original-format (400x400) distribution instead of the Pascal VOC mirror, so the light/weather categorization CSV can be joined by filename within one archive instead of across two. Written but **not yet executed** — see `docs/RESEARCH_LOG.md` for why it's the next step.
+`notebooks/ASSIS_FOD_Run4_Original400.py` retrains from FOD-A's original-format (400x400) distribution instead of the Pascal VOC mirror, so the light/weather categorization CSV can be joined by filename within one archive instead of across two. **Executed 2026-09-03** — small/medium/large detection rates match run 3 within noise (52.0%/99.5%/99.8%), and the light/weather stratification the earlier runs couldn't produce is now real: bright 87.5%, dim 100%, dark 100%, dry 91.3%, wet 100%. See `docs/RESEARCH_LOG.md` for the full result, an open question about the bright-vs-dark gap that isn't resolved yet, and a metadata-matching bug found and fixed along the way.
 
 ```
 python -m venv .venv && source .venv/bin/activate
