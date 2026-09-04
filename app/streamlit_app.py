@@ -604,8 +604,8 @@ def render_limitations_and_roadmap() -> None:
         "- False alarms are reported per image, not per day.\n"
         "- Localization error is relative to frame diagonal, not meters.\n"
         "- There is no authorized real-airport camera/CCTV deployment or testing "
-        "at any airport, including CHS — dataset and model work require no such "
-        "authorization and none has occurred.\n"
+        "at any airport — dataset and model work require no such authorization "
+        "and none has occurred.\n"
         "- None of this establishes FAA or other aviation regulatory "
         "certification."
     )
